@@ -278,3 +278,25 @@ def test_flatten_rejects_unknown_mode(built):
     out, _ = built
     with pytest.raises(ValueError, match="mode must be"):
         flatten(out, mode="nonsense", log=lambda *a: None)
+
+
+def test_edges_have_no_degenerate_pieces(built):
+    """A split point within MIN_SPLIT_M of a connector must SNAP to it, not make a sliver.
+
+    Overture's floats can name the same place twice — an attribute boundary at 0.379873 against a
+    connector at 0.379872, 1.7 mm apart on a 1,694 m segment. Left alone that emits a 1.7 mm edge
+    and, worse, the next piece then starts at a value matching no connector, so the junction is
+    merged away (one was 110 m inside an edge before this was fixed).
+    """
+    from duckoverture import flatten
+    from duckoverture.flatten import MIN_SPLIT_M
+    out, _ = built
+    flatten(out, mode="edges", log=lambda *a: None)
+    tiny = _q(out, f"SELECT count(*) FROM flat.segment WHERE length_m < {MIN_SPLIT_M}")[0]
+    assert tiny == 0, f"{tiny} degenerate edges shorter than {MIN_SPLIT_M} m"
+    # and snapping must not cost us a junction
+    inside = _q(out, """
+        SELECT count(*) FROM flat.segment f JOIN transportation.segment s ON s.id = f.segment_id
+        WHERE EXISTS (SELECT 1 FROM unnest(s.connectors) t(k)
+                      WHERE k.at > f.start_lr + 1e-6 AND k.at < f.end_lr - 1e-6)""")[0]
+    assert inside == 0, f"{inside} edges swallowed a junction"

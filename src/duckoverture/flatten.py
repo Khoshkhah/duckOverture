@@ -35,6 +35,10 @@ import duckdb
 RANGED = ["level_rules", "speed_limits", "access_restrictions", "road_flags",
           "road_surface", "subclass_rules", "width_rules"]
 
+# Two split points closer than this along the segment are the same point. Matches
+# lr_split_point_min_dist_meters in OvertureMaps/transportation-splitter.
+MIN_SPLIT_M = 0.01
+
 # modes whose access denial constitutes a one-way street (a foot/bicycle rule does not)
 _MOTOR_SQL = "['motor_vehicle','car','truck','hgv','bus','motorcycle','taxi','hov']" 
 
@@ -83,9 +87,23 @@ def _breakpoints(connectors: bool = False) -> str:
     parts = ", ".join(
         f"coalesce(flatten(list_transform({c}, x -> coalesce(x.between, []))), [])"
         for c in RANGED)
-    if connectors:
-        parts += ", coalesce(list_transform(connectors, c -> c.at), [])"
-    return f"list_sort(list_distinct(list_concat([0.0, 1.0], {parts})))"
+    if not connectors:
+        return f"list_sort(list_distinct(list_concat([0.0, 1.0], {parts})))"
+    # Attribute boundaries and connector positions can name the same place while differing in the
+    # source floats — 0.379873 against a connector at 0.379872, 1.7 mm apart on a 1,694 m segment.
+    # Left alone that emits a 1.7 mm piece AND, worse, the following piece then starts at a value
+    # that matches no connector, so the junction is merged away entirely (55 swallowed connectors,
+    # one 110 m inside an edge).
+    #
+    # So SNAP each breakpoint onto a connector within MIN_SPLIT_M before de-duplicating. This is
+    # what Overture's own lr_split_point_min_dist_meters does: "how far ... do these LRs need to be
+    # for us to create a new connector for them instead of using the existing connector".
+    ats = "list_transform(connectors, c -> c.at)"
+    tol = f"({MIN_SPLIT_M} / ST_Length_Spheroid(geometry))"
+    raw = f"list_concat([0.0, 1.0], {parts}, coalesce({ats}, []))"
+    snapped = (f"list_transform({raw}, x -> coalesce("
+               f"list_filter({ats}, a -> abs(a - x) <= {tol})[1], x))")
+    return f"list_sort(list_distinct({snapped}))"
 
 
 def _resolve_sql(connectors: bool = False) -> str:
@@ -101,6 +119,7 @@ pieces AS (
 SELECT
     id                                          AS segment_id,
     piece_no, start_lr, end_lr, geometry, connectors,
+    (end_lr - start_lr) * ST_Length_Spheroid(geometry) AS piece_m,
     class                                       AS highway,
     {_at_mid('subclass_rules')}[1].value        AS subclass,
     names.primary                               AS name,
@@ -195,15 +214,24 @@ def _split_sql(connectors: bool = False) -> str:
     OvertureMaps/transportation-splitter, which calls them artificial connectors.
     """
     # a boundary that coincides with a connector must force a cut, even if attributes match
-    on_conn = ("len(list_filter(connectors, c -> c.at = start_lr)) > 0"
+    # c.at must be snapped the same way the breakpoints were, or the equality never matches
+    on_conn = (f"len(list_filter(connectors, "
+               f"c -> abs(c.at - start_lr) < 1e-6)) > 0"
                if connectors else "FALSE")
     changed = " OR ".join(f"{c} IS DISTINCT FROM lag({c}) OVER w" for c in _ATTRS)
-    conn_at = ("list_filter(any_value(connectors), c -> c.at = {lr})[1].connector_id"
+    conn_at = (f"list_filter(any_value(connectors), "
+               f"c -> abs(c.at - {{lr}}) < 1e-6)[1].connector_id"
                if connectors else "NULL")
     return f"""
 WITH resolved AS ({_resolve_sql(connectors)}),
 marked AS (
-    SELECT *, CASE WHEN piece_no = 1 OR ({changed}) OR ({on_conn}) THEN 1 ELSE 0 END AS is_new
+    -- A piece shorter than MIN_SPLIT_M is not a real split: two source values naming the same
+    -- place a fraction of a millimetre apart. Absorb it into the previous run rather than emit a
+    -- degenerate edge. Same intent as lr_split_point_min_dist_meters in Overture's own splitter.
+    SELECT *, CASE WHEN piece_no = 1 THEN 1
+                   WHEN piece_m < {MIN_SPLIT_M} THEN 0
+                   WHEN ({changed}) OR ({on_conn}) THEN 1
+                   ELSE 0 END AS is_new
     FROM resolved
     WINDOW w AS (PARTITION BY segment_id ORDER BY piece_no)
 ),
