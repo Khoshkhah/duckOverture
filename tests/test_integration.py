@@ -230,12 +230,15 @@ def test_edges_mode_has_no_interior_connectors(built):
     from duckoverture import flatten
     out, _ = built
     flatten(out, mode="edges", log=lambda *a: None)
+    # only RESOLVABLE connectors count: one clipped out of the extract cannot be split at, and
+    # the official splitter ignores those too
     bad = _q(out, """
         SELECT count(*) FROM flat.segment f
-        JOIN transportation.segment s ON s.id = f.segment_id
-        WHERE EXISTS (SELECT 1 FROM unnest(s.connectors) t(k)
-                      WHERE k.at > f.start_lr + 1e-9 AND k.at < f.end_lr - 1e-9)""")[0]
-    assert bad == 0, "an edge still passes through a junction"
+        JOIN transportation.segment s ON s.id = f.segment_id,
+             unnest(s.connectors) t(k)
+        JOIN transportation.connector c ON c.id = k.connector_id
+        WHERE k.at > f.start_lr + 1e-9 AND k.at < f.end_lr - 1e-9""")[0]
+    assert bad == 0, "an edge still passes through a known junction"
     assert _length_matches(out), "edge split lost geometry"
 
 
@@ -280,6 +283,29 @@ def test_flatten_rejects_unknown_mode(built):
         flatten(out, mode="nonsense", log=lambda *a: None)
 
 
+def test_sources_is_a_ranged_column(built):
+    """`sources` carries provenance ranges on every road; omitting it cost 1,117 cut points."""
+    from duckoverture.flatten import RANGED
+    assert "sources" in RANGED
+
+
+def test_edges_only_split_at_resolvable_connectors(built):
+    """A junction we hold no connector record for must not become a cut point.
+
+    0.8% of connector references on Södermalm point outside the clip boundary. Splitting there
+    would mint nodes we cannot identify — Overture's own splitter ignores them too.
+    """
+    from duckoverture import flatten
+    out, _ = built
+    flatten(out, mode="edges", log=lambda *a: None)
+    bad = _q(out, """
+        SELECT count(*) FROM flat.segment
+        WHERE from_connector_id NOT LIKE '%@%'
+          AND NOT EXISTS (SELECT 1 FROM transportation.connector k
+                          WHERE k.id = from_connector_id)""")[0]
+    assert bad == 0, f"{bad} edges start at an unresolvable connector"
+
+
 def test_edges_have_no_degenerate_pieces(built):
     """A split point within MIN_SPLIT_M of a connector must SNAP to it, not make a sliver.
 
@@ -296,7 +322,8 @@ def test_edges_have_no_degenerate_pieces(built):
     assert tiny == 0, f"{tiny} degenerate edges shorter than {MIN_SPLIT_M} m"
     # and snapping must not cost us a junction
     inside = _q(out, """
-        SELECT count(*) FROM flat.segment f JOIN transportation.segment s ON s.id = f.segment_id
-        WHERE EXISTS (SELECT 1 FROM unnest(s.connectors) t(k)
-                      WHERE k.at > f.start_lr + 1e-6 AND k.at < f.end_lr - 1e-6)""")[0]
-    assert inside == 0, f"{inside} edges swallowed a junction"
+        SELECT count(*) FROM flat.segment f JOIN transportation.segment s ON s.id = f.segment_id,
+             unnest(s.connectors) t(k)
+        JOIN transportation.connector c ON c.id = k.connector_id
+        WHERE k.at > f.start_lr + 1e-6 AND k.at < f.end_lr - 1e-6""")[0]
+    assert inside == 0, f"{inside} edges swallowed a known junction"

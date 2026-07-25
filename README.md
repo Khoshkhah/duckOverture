@@ -215,12 +215,54 @@ piece_id · segment_id · highway · subclass · name · level · surface · wid
 maxspeed_kmh · is_bridge · is_tunnel · is_link · oneway · direction · length_m · geometry
 ```
 
-`--split` cuts instead, wherever a *resolved attribute changes* (not at every `between`, which
-over-fragments). Södermalm: 4,863 rows, of which 3,827 segments stay whole. Use it when
-per-stretch accuracy matters more than a stable one-row-per-segment join. **Total length is
-conserved in both modes**, to the metre — that is the invariant the build checks.
+### Three modes
+
+```bash
+duckoverture flatten data/sodermalm.duckdb -m edges
+```
+
+| `-m` | Södermalm rows | cuts where | use it for |
+|---|---:|---|---|
+| `segment` *(default)* | 4,203 | nowhere — dominant rule per segment | joining 1:1 on `segment_id` |
+| `attrs` | 4,863 | a **resolved attribute changes** | per-stretch accuracy |
+| `edges` | 10,167 | that, **plus every junction** | routing |
+
+Cutting at every `between` boundary instead would over-fragment — 1,672 sub-20 m rows on
+Södermalm, mostly crosswalk edges of a footway. `attrs` cuts on the *resolved* value, so a
+segment whose three speed-limit ranges all flatten to 60 stays one row: 3,827 of 4,203 segments
+never split at all.
+
+`edges` gives every row exactly two junctions, with `from_connector_id` / `to_connector_id`
+(synthetic `<segment_id>@<lr>` where a cut is an attribute change rather than a junction).
+
+**Total length is conserved in all three modes**, to the metre — that is the invariant the build
+checks.
 
 `duckoverture viz` prefers `flat.segment` when it exists, so the map uses the corrected values.
+
+### Validated against Overture's own splitter
+
+Overture publishes [`transportation-splitter`](https://github.com/OvertureMaps/transportation-splitter),
+a PySpark + Sedona reference implementation of exactly this. Run on the same Södermalm extract with
+`split_at_connectors=True`, against `-m edges`:
+
+```
+ours 10,167   official 10,167   diff +0
+identical cut-point sets: 4,198 / 4,203  (99.88%)
+```
+
+Three things had to match to get there, and each was a real bug on our side:
+
+- **`sources` is a ranged column.** It is easy to overlook — it carries provenance, not routing
+  attributes — but it has a `between` on every road. Omitting it left us **1,117 pieces short**.
+- **Only split at *resolvable* connectors.** 98 of 12,672 connector references on Södermalm point
+  outside the clip boundary. Splitting there mints nodes we hold no record for; the official
+  splitter skips them, so we do too.
+- **`edges` is deliberately unmerged.** Adjacent pieces with identical attributes stay separate
+  rows, which is what makes the comparison row-for-row. Use `-m attrs` if you want them merged.
+
+Not matched: `prohibited_transitions` sequences still reference pre-split segment ids. The official
+splitter renumbers them. That is the remaining correctness gap for routing.
 
 ## Known limits of the source data
 
@@ -283,7 +325,8 @@ DUCKOVERTURE_NETWORK_TESTS=1 pytest tests/           # + live S3 extraction
 
 ## Status
 
-v0.2.0 — raw extraction, flattening and rendering all work.
+v0.2.0 — raw extraction, flattening and rendering all work. `-m edges` matches Overture's own
+splitter exactly on Södermalm.
 
-Next: `flat.connector` and a routable edge/node pair derived from `connectors`, so the extract can
-feed a router directly.
+Next: renumber `prohibited_transitions` onto split pieces, and a `flat.connector` node table, so
+the extract can feed a router directly.

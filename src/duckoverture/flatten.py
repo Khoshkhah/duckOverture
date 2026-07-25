@@ -32,8 +32,10 @@ from pathlib import Path
 import duckdb
 
 # Rule columns that carry a `between` range. Their breakpoints define where a segment is cut.
+# `sources` is easy to overlook and matters most: it carries provenance ranges on EVERY road, and
+# omitting it left us 1,117 pieces short of Overture's own splitter, which considers all columns.
 RANGED = ["level_rules", "speed_limits", "access_restrictions", "road_flags",
-          "road_surface", "subclass_rules", "width_rules"]
+          "road_surface", "subclass_rules", "width_rules", "sources"]
 
 # Two split points closer than this along the segment are the same point. Matches
 # lr_split_point_min_dist_meters in OvertureMaps/transportation-splitter.
@@ -89,6 +91,7 @@ def _breakpoints(connectors: bool = False) -> str:
         for c in RANGED)
     if not connectors:
         return f"list_sort(list_distinct(list_concat([0.0, 1.0], {parts})))"
+    ats = "list_transform(conns, c -> c.at)"
     # Attribute boundaries and connector positions can name the same place while differing in the
     # source floats — 0.379873 against a connector at 0.379872, 1.7 mm apart on a 1,694 m segment.
     # Left alone that emits a 1.7 mm piece AND, worse, the following piece then starts at a value
@@ -98,7 +101,6 @@ def _breakpoints(connectors: bool = False) -> str:
     # So SNAP each breakpoint onto a connector within MIN_SPLIT_M before de-duplicating. This is
     # what Overture's own lr_split_point_min_dist_meters does: "how far ... do these LRs need to be
     # for us to create a new connector for them instead of using the existing connector".
-    ats = "list_transform(connectors, c -> c.at)"
     tol = f"({MIN_SPLIT_M} / ST_Length_Spheroid(geometry))"
     raw = f"list_concat([0.0, 1.0], {parts}, coalesce({ats}, []))"
     snapped = (f"list_transform({raw}, x -> coalesce("
@@ -110,7 +112,17 @@ def _resolve_sql(connectors: bool = False) -> str:
     """Cut the segment at every breakpoint and resolve each rule at the piece midpoint."""
     return f"""
 WITH src AS (SELECT * FROM transportation.segment WHERE subtype = 'road'),
-breaks AS (SELECT *, {_breakpoints(connectors)} AS bp FROM src),
+-- Only junctions we actually hold a connector record for become cut points. Overture's splitter
+-- does the same, and it matters in a clipped extract: 0.8% of connector references on Södermalm
+-- point outside the boundary, and splitting there would mint nodes we cannot identify.
+conns AS (
+    SELECT s.id, coalesce(list({{'connector_id': x.connector_id, 'at': x.at}}), []) AS conns
+    FROM src s, unnest(s.connectors) t(x)
+    JOIN transportation.connector k ON k.id = x.connector_id
+    GROUP BY 1),
+resolved_conns AS (
+    SELECT s.*, coalesce(c.conns, []) AS conns FROM src s LEFT JOIN conns c ON c.id = s.id),
+breaks AS (SELECT *, {_breakpoints(connectors)} AS bp FROM resolved_conns),
 pieces AS (
     SELECT b.*, u.i AS piece_no, b.bp[u.i] AS start_lr, b.bp[u.i + 1] AS end_lr,
            (b.bp[u.i] + b.bp[u.i + 1]) / 2 AS mid
@@ -118,7 +130,7 @@ pieces AS (
 )
 SELECT
     id                                          AS segment_id,
-    piece_no, start_lr, end_lr, geometry, connectors,
+    piece_no, start_lr, end_lr, geometry, conns,
     (end_lr - start_lr) * ST_Length_Spheroid(geometry) AS piece_m,
     class                                       AS highway,
     {_at_mid('subclass_rules')}[1].value        AS subclass,
@@ -200,7 +212,7 @@ _ATTRS = ["highway", "subclass", "name", "level", "surface", "width_m", "maxspee
 _CHANGED = " OR ".join(
     f"{c} IS DISTINCT FROM lag({c}) OVER w" for c in _ATTRS)
 
-def _split_sql(connectors: bool = False) -> str:
+def _split_sql(connectors: bool = False, merge: bool = True) -> str:
     """Merge adjacent pieces that agree on every attribute, then re-cut the geometry.
 
     With ``connectors=True`` a piece boundary that sits on a connector is never merged away — the
@@ -215,11 +227,14 @@ def _split_sql(connectors: bool = False) -> str:
     """
     # a boundary that coincides with a connector must force a cut, even if attributes match
     # c.at must be snapped the same way the breakpoints were, or the equality never matches
-    on_conn = (f"len(list_filter(connectors, "
-               f"c -> abs(c.at - start_lr) < 1e-6)) > 0"
+    on_conn = ('len(list_filter(conns, c -> abs(c.at - start_lr) < 1e-6)) > 0'
                if connectors else "FALSE")
-    changed = " OR ".join(f"{c} IS DISTINCT FROM lag({c}) OVER w" for c in _ATTRS)
-    conn_at = (f"list_filter(any_value(connectors), "
+    # merge=False keeps every breakpoint as its own row, which is what Overture's splitter emits.
+    # merge=True collapses adjacent runs whose resolved attributes are identical — fewer rows, but
+    # no longer row-for-row comparable with the reference implementation.
+    changed = (" OR ".join(f"{c} IS DISTINCT FROM lag({c}) OVER w" for c in _ATTRS)
+               if merge else "TRUE")
+    conn_at = (f"list_filter(any_value(conns), "
                f"c -> abs(c.at - {{lr}}) < 1e-6)[1].connector_id"
                if connectors else "NULL")
     return f"""
@@ -283,8 +298,10 @@ def flatten(db: str | Path, mode: str = "segment", log=print) -> dict[str, int]:
 
     t0 = time.perf_counter()
     sql = {"segment": _WHOLE_SQL,
-           "attrs": _split_sql(connectors=False),
-           "edges": _split_sql(connectors=True)}[mode]
+           "attrs": _split_sql(connectors=False, merge=True),
+           # edges is deliberately UNMERGED: row-for-row comparable with
+           # OvertureMaps/transportation-splitter run with split_at_connectors=True
+           "edges": _split_sql(connectors=True, merge=False)}[mode]
     con.execute(f"CREATE OR REPLACE TABLE flat.segment AS {sql}")
     n = con.execute("SELECT count(*) FROM flat.segment").fetchone()[0]
     src = con.execute(
