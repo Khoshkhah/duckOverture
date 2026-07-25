@@ -222,6 +222,48 @@ conserved in both modes**, to the metre — that is the invariant the build chec
 
 `duckoverture viz` prefers `flat.segment` when it exists, so the map uses the corrected values.
 
+## Known limits of the source data
+
+These are Overture's, not this tool's — `duckoverture` reports faithfully what the release
+contains. They matter because they are invisible unless you look.
+
+### Roundabouts lose their one-way ⚠️
+
+In OSM, `junction=roundabout` **implies** `oneway=yes` with no explicit tag. **Overture has no
+roundabout concept** — nothing in `subclass` or `road_flags` marks one — and the implication is
+never materialised into `access_restrictions`. Measured on Nacka (210 roundabouts):
+
+| | roundabout segments | marked one-way |
+|---|---:|---:|
+| OSM / duckOSM | 210 | **210 (100%)** |
+| Overture | 208 | **52 (25%)** |
+
+**75% come out two-way.** Do not route on `flat.segment` around roundabouts without repairing
+this — you will send vehicles the wrong way. Detecting closed rings in `connectors` would be the
+fix; it is not implemented.
+
+### "Two-way" is inferred from silence
+
+Overture only ever states direction *negatively* — `access_type: denied` with a `heading`. There is
+no positive "this is two-way". So `oneway = false` conflates:
+
+| | Södermalm |
+|---|---:|
+| no `access_restrictions` at all | 3,195 |
+| has restrictions, none directional | 364 |
+| **has a heading-scoped denial** → `oneway = true` | **644** |
+
+3,559 roads are two-way *by assumption*. That is the OSM convention and it is usually right, but
+the data cannot distinguish "known two-way" from "nobody said".
+
+### No lane counts
+
+There is no `lanes` column anywhere. `width_rules` gives metres, not a lane count.
+
+### Attributes apply to ranges, not whole roads
+
+See [Flatten](#flatten) — this is handled, but it is why `flat.segment` exists at all.
+
 ## Install
 
 ```bash
