@@ -9,9 +9,10 @@ grade-separation sandwich:
     level_rules  -> layer               (list of struct(value, between[]))
     speed_limits -> maxspeed_kmh        (list of struct(max_speed struct(value, unit)))
 
-Sub-range geometry (`between`) is collapsed to the segment's first rule: roadstyle styles a whole
-feature, so a segment that is a bridge for part of its length is drawn as a bridge. Splitting at
-sub-range boundaries belongs in the flatten stage, not here.
+**Prefers `flat.segment` when it exists.** That table resolves each ranged attribute from its
+*dominant* rule, so a 1,639 m road whose first speed rule covers 115 m is labelled 60 km/h rather
+than 40. Falling back to `transportation.segment` re-derives with the naive `[1]` shortcut and
+says so in the log — run `duckoverture flatten` to fix it.
 
 Needs the `viz` extra: ``pip install "duckoverture[viz]"``.
 """
@@ -108,6 +109,26 @@ def default_output(db: str | Path) -> Path:
     return root / "viz" / f"{db.stem}.html"
 
 
+# flat.segment already holds the resolved scalars, with ranged attributes taken from their
+# dominant rule — so when it exists the map uses corrected values instead of re-deriving them
+# with the naive `[1]` shortcut.
+FLAT_SQL = """
+SELECT piece_id, segment_id, highway, subclass, name, level AS layer,
+       CASE WHEN is_bridge THEN 'yes' END AS bridge,
+       CASE WHEN is_tunnel THEN 'yes' END AS tunnel,
+       maxspeed_kmh, oneway, surface, width_m, length_m,
+       ST_AsWKB(CASE WHEN direction = 'backward' THEN ST_Reverse(geometry)
+                     ELSE geometry END) AS wkb
+FROM flat.segment
+"""
+
+
+def _has_flat(con) -> bool:
+    return bool(con.execute(
+        "SELECT count(*) FROM duckdb_tables() "
+        "WHERE schema_name='flat' AND table_name='segment'").fetchone()[0])
+
+
 def load_roads(db: str | Path, report: bool = False):
     """Overture road segments as a GeoDataFrame with roadstyle-shaped columns.
 
@@ -118,8 +139,10 @@ def load_roads(db: str | Path, report: bool = False):
 
     con = duckdb.connect(str(db), read_only=True)
     con.execute("INSTALL spatial; LOAD spatial;")
+    flat = not report and _has_flat(con)
     try:
-        df = con.execute(_report_select(con) if report else SEGMENT_SQL).df()
+        df = con.execute(_report_select(con) if report
+                         else FLAT_SQL if flat else SEGMENT_SQL).df()
     except duckdb.CatalogException as e:
         raise SystemExit(
             f"{db} has no transportation.segment table — build it with "
@@ -145,6 +168,12 @@ def render(db: str | Path, out: str | Path, palette: str = "highsat",
         raise SystemExit('viz needs roadstyle: pip install "duckoverture[viz]"') from e
 
     g = load_roads(db, report=report)
+    if not report:
+        import duckdb as _d
+        _c = _d.connect(str(db), read_only=True)
+        log("  source: flat.segment (dominant-rule values)" if _has_flat(_c)
+            else "  source: transportation.segment (raw; run `duckoverture flatten` for corrected values)")
+        _c.close()
     log(f"{len(g):,} road segments  |  oneway {int(g.oneway.sum()):,} · "
         f"bridges {g.bridge.notna().sum():,} · tunnels {g.tunnel.notna().sum():,} · "
         f"levelled {g.layer.notna().sum():,} · speed limits {g.maxspeed_kmh.notna().sum():,}")

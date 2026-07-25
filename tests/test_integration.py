@@ -137,3 +137,67 @@ def test_oneway_is_derived_from_heading_denials(built):
                                FROM transportation.segment WHERE subtype='road'
                                  AND {_heading_denied('forward')} LIMIT 1""").fetchone()
         assert a != b
+
+
+ATTRS = ["highway", "subclass", "name", "level", "surface", "width_m", "maxspeed_kmh",
+         "is_bridge", "is_tunnel", "is_link", "oneway", "direction"]
+
+
+def _q(out, sql):
+    """Query and CLOSE — a lingering read-only handle locks the next flatten()."""
+    import duckdb as _d
+    con = _d.connect(str(out), read_only=True)
+    con.execute("LOAD spatial;")
+    try:
+        return con.execute(sql).fetchone()
+    finally:
+        con.close()
+
+
+def _length_matches(out):
+    a, b = _q(out, """SELECT (SELECT sum(length_m) FROM flat.segment),
+                             (SELECT sum(ST_Length_Spheroid(geometry))
+                              FROM transportation.segment WHERE subtype='road')""")
+    return abs(a - b) / b < 1e-6
+
+
+def test_flatten_default_is_one_row_per_segment(built):
+    """No splitting by default: flat.segment must join 1:1 to the raw segments."""
+    from duckoverture import flatten
+    out, _ = built
+    flatten(out, log=lambda *a: None)
+    n_flat, n_raw = _q(out, """SELECT (SELECT count(*) FROM flat.segment),
+                                      (SELECT count(*) FROM transportation.segment
+                                       WHERE subtype='road')""")
+    assert n_flat == n_raw, "default flatten must not split"
+    assert _q(out, "SELECT count(*) FROM (SELECT segment_id FROM flat.segment "
+                   "GROUP BY 1 HAVING count(*) > 1)")[0] == 0
+    assert _length_matches(out)
+
+
+def test_flatten_split_conserves_length_and_cuts_only_on_change(built):
+    from duckoverture import flatten
+    out, _ = built
+    flatten(out, split=True, log=lambda *a: None)
+    assert _length_matches(out), "split lost geometry"
+    # no two consecutive pieces of a segment may agree on EVERY attribute
+    lags = ", ".join(f"lag({c}) OVER w AS l_{c}" for c in ATTRS)
+    same = " AND ".join(f"{c} IS NOT DISTINCT FROM l_{c}" for c in ATTRS)
+    dupes = _q(out, f"""WITH x AS (SELECT *, {lags} FROM flat.segment
+                                  WINDOW w AS (PARTITION BY segment_id ORDER BY piece_no))
+                        SELECT count(*) FROM x WHERE piece_no > 1 AND {same}""")[0]
+    assert dupes == 0, "adjacent identical pieces were not merged"
+
+
+def test_dominant_rule_beats_first_rule(built):
+    """The bug this fixes: a long road labelled from a short first rule."""
+    from duckoverture import flatten
+    out, _ = built
+    flatten(out, log=lambda *a: None)
+    bad = _q(out, """
+        SELECT count(*) FROM transportation.segment s JOIN flat.segment f ON f.segment_id = s.id
+        WHERE len(s.speed_limits) > 1
+          AND f.maxspeed_kmh IS DISTINCT FROM (
+              SELECT x.max_speed.value FROM unnest(s.speed_limits) t(x)
+              ORDER BY coalesce(x.between[2] - x.between[1], 1.0) DESC LIMIT 1)""")[0]
+    assert bad == 0, "maxspeed_kmh did not come from the dominant rule"

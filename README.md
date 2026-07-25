@@ -177,6 +177,43 @@ to the format shows up in the panel automatically.
 
 Needs the extra: `pip install "duckoverture[viz]"`.
 
+## Flatten
+
+```bash
+duckoverture flatten data/sodermalm.duckdb
+```
+
+```
+  flat.segment  4,203 segments -> 4,203 rows [one row per segment (dominant rule)]  0.0s
+  length 448,588 m vs raw 448,588 m  (drift 0.0000%)
+```
+
+Overture attaches attributes to **ranges** along a segment instead of splitting the road:
+
+```json
+speed_limits: [{"max_speed": {"value": 40}, "between": [0.000, 0.070]},
+               {"max_speed": {"value": 60}, "between": [0.070, 0.927]},
+               {"max_speed": {"value": 40}, "between": [0.927, 1.000]}]
+```
+
+Reading that with `[1]` — the obvious shortcut — labels a **1,639 m road 40 km/h** on the strength
+of its first 115 m. `flat.segment` takes the **dominant** rule instead, the one covering most of
+the segment: **60 km/h**, true of 86% of it.
+
+One row per segment, so it joins 1:1 on `segment_id`:
+
+```
+piece_id · segment_id · highway · subclass · name · level · surface · width_m
+maxspeed_kmh · is_bridge · is_tunnel · is_link · oneway · direction · length_m · geometry
+```
+
+`--split` cuts instead, wherever a *resolved attribute changes* (not at every `between`, which
+over-fragments). Södermalm: 4,863 rows, of which 3,827 segments stay whole. Use it when
+per-stretch accuracy matters more than a stable one-row-per-segment join. **Total length is
+conserved in both modes**, to the metre — that is the invariant the build checks.
+
+`duckoverture viz` prefers `flat.segment` when it exists, so the map uses the corrected values.
+
 ## Install
 
 ```bash
@@ -196,6 +233,7 @@ DUCKOVERTURE_NETWORK_TESTS=1 pytest tests/           # + live S3 extraction
 
 ## Status
 
-v0.1.0 — the raw layer works. Next: `duckoverture flatten` to derive scalar convenience columns
-(`maxspeed_kmh`, `is_oneway`, `lvl`) from the nested structs, as a second stage on top of the raw
-tables.
+v0.2.0 — raw extraction, flattening and rendering all work.
+
+Next: `flat.connector` and a routable edge/node pair derived from `connectors`, so the extract can
+feed a router directly.

@@ -35,6 +35,22 @@ def build_cmd(boundary: Path, output: Path, release: str, types, clip: bool) -> 
     build(boundary, output, release=release, types=list(types) or None, clip=clip)
 
 
+@cli.command("flatten")
+@click.argument("db", type=click.Path(exists=True, path_type=Path))
+@click.option("--split/--no-split", default=False, show_default=True,
+              help="Cut segments where a resolved attribute changes, instead of one row each.")
+def flatten_cmd(db: Path, split: bool) -> None:
+    """Derive the flat.* schema from the raw Overture tables.
+
+    Overture attaches attributes to RANGES along a segment (`between: [0.43, 0.97]`). By default
+    each segment stays one row, with every ranged column taking its DOMINANT rule — the one
+    covering most of the segment. --split cuts instead, wherever a resolved attribute changes.
+    Total length is conserved either way.
+    """
+    from .flatten import flatten
+    flatten(db, split=split)
+
+
 @cli.command("viz")
 @click.argument("db", type=click.Path(exists=True, path_type=Path))
 @click.option("-o", "--output", type=click.Path(path_type=Path), default=None,
