@@ -103,3 +103,37 @@ def test_report_mode_carries_every_field(built, tmp_path):
     assert isinstance(s, str) and _json.loads(s), "connectors is not readable JSON"
     html = render(out, tmp_path / "r.html", report=True, log=lambda *a: None)
     assert html.exists() and html.stat().st_size > 10_000
+
+
+def test_oneway_is_derived_from_heading_denials(built):
+    """Overture has no `oneway` column — it must be read out of access_restrictions."""
+    import duckdb as _d
+    from duckoverture.viz import ONEWAY_EXPR, load_roads, _heading_denied
+    out, _ = built
+    g = load_roads(out)
+    assert "oneway" in g.columns
+    assert g.oneway.dtype == bool or set(g.oneway.dropna().unique()) <= {True, False}
+
+    con = _d.connect(str(out), read_only=True)
+    con.execute("LOAD spatial;")
+    # a mode-scoped foot/bicycle denial must NOT count as a one-way street
+    bad = con.execute(f"""
+        SELECT count(*) FROM transportation.segment
+        WHERE subtype='road' AND {ONEWAY_EXPR}
+          AND NOT EXISTS (SELECT 1 FROM unnest(access_restrictions) t(a)
+                          WHERE a.access_type='denied' AND a."when".heading IS NOT NULL
+                            AND (a."when".mode IS NULL
+                                 OR list_has_any(a."when".mode,
+                                    ['motor_vehicle','car','truck','hgv','bus','motorcycle','taxi','hov'])))
+    """).fetchone()[0]
+    assert bad == 0, "oneway derived from a non-motor restriction"
+    # forward-denied segments must come back reversed, or roadstyle's chevrons point wrong
+    n_rev = con.execute(f"""SELECT count(*) FROM transportation.segment WHERE subtype='road'
+                            AND {_heading_denied('forward')} AND NOT {_heading_denied('backward')}
+                         """).fetchone()[0]
+    if n_rev:
+        a, b = con.execute(f"""SELECT ST_AsText(ST_StartPoint(geometry)),
+                                      ST_AsText(ST_StartPoint(ST_Reverse(geometry)))
+                               FROM transportation.segment WHERE subtype='road'
+                                 AND {_heading_denied('forward')} LIMIT 1""").fetchone()
+        assert a != b

@@ -129,9 +129,20 @@ grade-separation sandwich:
 
 | Overture | → | roadstyle |
 |---|---|---|
+| `class` | → | `highway` |
+| `names.primary` | → | `name` |
 | `road_flags` contains `is_bridge` / `is_tunnel` | → | `bridge` / `tunnel` |
 | `level_rules[1].value` | → | `layer` |
 | `speed_limits[1].max_speed.value` | → | `maxspeed_kmh` |
+| `access_restrictions` heading denial | → | **`oneway`** |
+
+**Overture has no `oneway` column.** A one-way street is a *heading-scoped denial*:
+`{"access_type": "denied", "when": {"heading": "backward"}}` means traffic runs forward only.
+Mode matters — a denial scoped to `[foot, bicycle]` is a footway rule, not a one-way street, so
+only all-mode or motorised denials count. Södermalm: **644 of 4,203**.
+
+Segments whose *forward* travel is denied get `ST_Reverse`d, because roadstyle draws the direction
+chevrons **along the geometry** — without the flip they would point into oncoming traffic.
 
 Sub-range rules (`between`) collapse to the segment's first rule — roadstyle styles whole features,
 so a segment that is a bridge for part of its length is drawn as a bridge. Splitting at sub-range
