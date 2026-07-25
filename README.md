@@ -230,27 +230,39 @@ maxspeed_kmh · is_bridge · is_tunnel · is_link · oneway · direction · moto
 max_height_m · max_weight_t · is_roundabout · length_m · geometry
 ```
 
-### Three modes
+### Four modes
 
 ```bash
-duckoverture flatten data/sodermalm.duckdb -m edges
+duckoverture flatten data/sodermalm.duckdb -m routing
 ```
 
 | `-m` | Södermalm rows | cuts where | use it for |
 |---|---:|---|---|
 | `segment` *(default)* | 4,203 | nowhere — dominant rule per segment | joining 1:1 on `segment_id` |
-| `attrs` | 4,863 | a **resolved attribute changes** | per-stretch accuracy |
-| `edges` | 10,167 | that, **plus every junction** | routing |
+| `attrs` | 4,876 | a **resolved attribute changes** | per-stretch accuracy |
+| **`routing`** | **8,978** | that, **plus every junction** | **routing** |
+| `edges` | 10,167 | every breakpoint, nothing merged | validating against Overture's splitter |
+
+**`routing` is the one to route on.** `edges` differs only in that it never merges adjacent
+identical pieces, and the difference is almost entirely `sources` — the provenance column carries
+a range per contributing OSM way, so a 237 m residential street stitched from **13 OSM ways**
+becomes 16 pieces identical in class, access, direction and everything else. Those cuts describe
+edit history, not the road. `routing` merges them back while keeping every junction: that street
+goes to 4 pieces, each starting at a real connector. Across Södermalm it removes 1,189 rows (−12%)
+and 1,110 sub-20 m slivers.
+
+`edges` keeps them because the reference splitter emits them too — see below.
 
 Cutting at every `between` boundary instead would over-fragment — 1,672 sub-20 m rows on
 Södermalm, mostly crosswalk edges of a footway. `attrs` cuts on the *resolved* value, so a
 segment whose three speed-limit ranges all flatten to 60 stays one row: 3,827 of 4,203 segments
 never split at all.
 
-`edges` gives every row exactly two junctions, with `from_connector_id` / `to_connector_id`
-(synthetic `<segment_id>@<lr>` where a cut is an attribute change rather than a junction).
+`routing` and `edges` give every row exactly two junctions, with `from_connector_id` /
+`to_connector_id` (synthetic `<segment_id>@<lr>` where a cut is an attribute change rather than a
+junction). Both also build `flat.turn_restriction`.
 
-**Total length is conserved in all three modes**, to the metre — that is the invariant the build
+**Total length is conserved in all four modes**, to the metre — that is the invariant the build
 checks.
 
 `duckoverture viz` prefers `flat.segment` when it exists, so the map uses the corrected values.
@@ -259,7 +271,7 @@ checks.
 
 Overture publishes [`transportation-splitter`](https://github.com/OvertureMaps/transportation-splitter),
 a PySpark + Sedona reference implementation of exactly this. Run on the same Södermalm extract with
-`split_at_connectors=True`, against `-m edges`:
+`split_at_connectors=True`, against `-m edges` (this is what that mode is for):
 
 ```
 ours 10,167   official 10,167   diff +0
@@ -274,7 +286,7 @@ Three things had to match to get there, and each was a real bug on our side:
   outside the clip boundary. Splitting there mints nodes we hold no record for; the official
   splitter skips them, so we do too.
 - **`edges` is deliberately unmerged.** Adjacent pieces with identical attributes stay separate
-  rows, which is what makes the comparison row-for-row. Use `-m attrs` if you want them merged.
+  rows, which is what makes the comparison row-for-row. Use `-m routing` for the merged form.
 
 ### Turn restrictions get renumbered too
 

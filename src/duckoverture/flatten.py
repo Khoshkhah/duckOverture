@@ -472,7 +472,7 @@ ORDER BY r.from_piece_id, r.tr_no, r.seq_no
 """
 
 
-MODES = ("segment", "attrs", "edges")
+MODES = ("segment", "attrs", "edges", "routing")
 
 
 def flatten(db: str | Path, mode: str = "segment", log=print) -> dict[str, int]:
@@ -483,9 +483,12 @@ def flatten(db: str | Path, mode: str = "segment", log=print) -> dict[str, int]:
     - ``segment`` (default) — one row per Overture segment, each ranged attribute from its
       dominant (longest-covering) rule. Joins 1:1 on ``segment_id``.
     - ``attrs`` — cut where a resolved attribute changes.
-    - ``edges`` — cut at junctions **and** attribute changes, with ``from_connector_id`` /
-      ``to_connector_id``. This is the routable form: 44% of Södermalm road segments carry more
-      than two connectors, so without it a "segment" runs straight through junctions.
+    - ``routing`` — cut at junctions **and** real attribute changes, with ``from_connector_id`` /
+      ``to_connector_id``. The routable form: 44% of Södermalm road segments carry more than two
+      connectors, so without it a "segment" runs straight through junctions.
+    - ``edges`` — as ``routing`` but never merges adjacent identical pieces, so the output is
+      row-for-row comparable with OvertureMaps/transportation-splitter. Costs 1,189 extra rows on
+      Södermalm that differ only in which OSM way they came from.
     """
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
@@ -502,7 +505,13 @@ def flatten(db: str | Path, mode: str = "segment", log=print) -> dict[str, int]:
            "attrs": _split_sql(connectors=False, merge=True, have_rb=have_rb),
            # edges is deliberately UNMERGED: row-for-row comparable with
            # OvertureMaps/transportation-splitter run with split_at_connectors=True
-           "edges": _split_sql(connectors=True, merge=False, have_rb=have_rb)}[mode]
+           "edges": _split_sql(connectors=True, merge=False, have_rb=have_rb),
+           # routing is edges with adjacent identical-attribute runs merged back. The difference is
+           # `sources`: it carries a `between` per contributing OSM way, so a 237 m residential
+           # street stitched from 13 ways splits into 16 identical pieces. Those cuts are
+           # provenance, not geography, and mean nothing to a router — but they must stay in
+           # `edges`, because the reference splitter emits them too.
+           "routing": _split_sql(connectors=True, merge=True, have_rb=have_rb)}[mode]
     con.execute(f"CREATE OR REPLACE TABLE flat.segment AS {sql}")
     n = con.execute("SELECT count(*) FROM flat.segment").fetchone()[0]
     src = con.execute(
@@ -510,13 +519,14 @@ def flatten(db: str | Path, mode: str = "segment", log=print) -> dict[str, int]:
     stats["flat.segment"] = n
     desc = {"segment": "one row per segment (dominant rule)",
             "attrs": "split at attribute changes",
-            "edges": "split at junctions + attribute changes (routable)"}[mode]
+            "edges": "split at every breakpoint (splitter-parity)",
+            "routing": "split at junctions + attribute changes (routable)"}[mode]
     log(f"  flat.segment  {src:,} segments -> {n:,} rows [{desc}]  "
         f"{time.perf_counter()-t0:.1f}s")
 
     # Turn restrictions reference whole segments, so they only mean anything once the pieces have
-    # junctions to hang off — i.e. in edges mode.
-    if mode == "edges":
+    # junctions to hang off — the two connector-aware modes.
+    if mode in ("edges", "routing"):
         t0 = time.perf_counter()
         con.execute(f"CREATE OR REPLACE TABLE flat.turn_restriction AS {_TURN_SQL}")
         rows, kept = con.execute(

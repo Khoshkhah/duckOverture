@@ -274,15 +274,44 @@ def test_edges_mode_yields_a_graph(built):
 
 
 def test_modes_are_ordered_by_granularity(built):
-    """segment <= attrs <= edges, and all three conserve length."""
+    """segment <= attrs <= routing <= edges, and all four conserve length."""
     from duckoverture import flatten
     out, _ = built
     counts = {}
-    for m in ("segment", "attrs", "edges"):
+    for m in ("segment", "attrs", "routing", "edges"):
         flatten(out, mode=m, log=lambda *a: None)
         counts[m] = _q(out, "SELECT count(*) FROM flat.segment")[0]
         assert _length_matches(out), f"{m} lost geometry"
-    assert counts["segment"] <= counts["attrs"] <= counts["edges"], counts
+    assert counts["segment"] <= counts["attrs"] <= counts["routing"] <= counts["edges"], counts
+
+
+def test_routing_keeps_junctions_but_drops_provenance_cuts(built):
+    """routing must lose the `sources` fragmentation WITHOUT losing a single junction.
+
+    `sources` carries a range per contributing OSM way, so a 237 m residential street stitched
+    from 13 of them splits into 16 pieces identical in every attribute. Those cuts are provenance,
+    not geography. edges keeps them for splitter parity; routing must not.
+    """
+    from duckoverture import flatten
+    out, _ = built
+
+    flatten(out, mode="edges", log=lambda *a: None)
+    n_edges = _q(out, "SELECT count(*) FROM flat.segment")[0]
+    flatten(out, mode="routing", log=lambda *a: None)
+    n_routing = _q(out, "SELECT count(*) FROM flat.segment")[0]
+    assert n_routing < n_edges, "routing merged nothing"
+
+    # the invariant that matters: no known junction may end up inside an edge
+    assert _q(out, """
+        SELECT count(*) FROM flat.segment f
+        JOIN transportation.segment s ON s.id = f.segment_id,
+             unnest(s.connectors) t(k)
+        JOIN transportation.connector c ON c.id = k.connector_id
+        WHERE k.at > f.start_lr + 1e-6 AND k.at < f.end_lr - 1e-6""")[0] == 0
+
+    # turn restrictions must be built here too, and point at pieces that exist
+    assert _q(out, """SELECT count(*) FROM flat.turn_restriction r
+        WHERE NOT EXISTS (SELECT 1 FROM flat.segment f WHERE f.piece_id = r.to_piece_id)""")[0] == 0
 
 
 def test_flatten_rejects_unknown_mode(built):

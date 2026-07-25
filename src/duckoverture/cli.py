@@ -37,10 +37,11 @@ def build_cmd(boundary: Path, output: Path, release: str, types, clip: bool) -> 
 
 @cli.command("flatten")
 @click.argument("db", type=click.Path(exists=True, path_type=Path))
-@click.option("-m", "--mode", type=click.Choice(["segment", "attrs", "edges"]),
+@click.option("-m", "--mode", type=click.Choice(["segment", "attrs", "edges", "routing"]),
               default="segment", show_default=True,
               help="segment: one row each · attrs: cut on attribute change · "
-                   "edges: cut at junctions too (routable).")
+                   "routing: cut at junctions too · edges: routing without merging "
+                   "(matches Overture's splitter).")
 def flatten_cmd(db: Path, mode: str) -> None:
     """Derive the flat.* schema from the raw Overture tables.
 
@@ -51,10 +52,16 @@ def flatten_cmd(db: Path, mode: str) -> None:
     Run `duckoverture roundabouts` first to repair the one-way that Overture drops on
     roundabouts; without it `is_roundabout` is false everywhere.
 
-    -m edges additionally cuts at every connector, giving edges with exactly two junctions and
+    -m routing additionally cuts at every connector, giving edges with exactly two junctions and
     from_connector_id / to_connector_id — the routable form. It also builds flat.turn_restriction,
-    renumbering Overture's prohibited_transitions onto the split pieces at both ends. Total length
-    is conserved in all modes.
+    renumbering Overture's prohibited_transitions onto the split pieces at both ends.
+
+    -m edges is the same but never merges adjacent identical pieces, so it matches
+    OvertureMaps/transportation-splitter row for row. Use it to validate, not to route: `sources`
+    carries a range per contributing OSM way, so a 237 m street stitched from 13 of them becomes
+    16 identical pieces.
+
+    Total length is conserved in all modes.
     """
     from .flatten import flatten
     flatten(db, mode=mode)
