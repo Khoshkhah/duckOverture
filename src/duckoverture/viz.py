@@ -95,8 +95,6 @@ def _report_select(con, raw: bool = False) -> str:
         # nested columns, summarised to one readable value each
         "len(s.connectors) AS n_connectors",
         "len(s.prohibited_transitions) AS n_turn_restrictions_segment",
-        "(SELECT count(*) FROM flat.turn_restriction r WHERE r.from_piece_id = f.piece_id)"
-        " AS turn_bans_here",
         "list_aggregate(list_transform(s.speed_limits, x -> x.max_speed.value::VARCHAR),"
         " 'string_agg', ' / ') AS all_speed_limits",
         "list_aggregate(list_transform(s.access_restrictions, x -> x.access_type"
@@ -107,6 +105,11 @@ def _report_select(con, raw: bool = False) -> str:
         "s.sources[1].dataset AS source_dataset",
         "s.\"version\" AS overture_version",
     ]
+    # Renumbered turn bans exist only after `flatten -m edges`; the other modes have no such
+    # table and the report must still render.
+    if _has_table(con, "flat", "turn_restriction"):
+        parts.append("(SELECT count(*) FROM flat.turn_restriction r "
+                     "WHERE r.from_piece_id = f.piece_id) AS turn_bans_here")
     if raw:
         for name, dtype, *_ in con.execute("DESCRIBE transportation.segment").fetchall():
             if name == "geometry":
@@ -144,10 +147,14 @@ FROM flat.segment
 """
 
 
-def _has_flat(con) -> bool:
+def _has_table(con, schema: str, table: str) -> bool:
     return bool(con.execute(
         "SELECT count(*) FROM duckdb_tables() "
-        "WHERE schema_name='flat' AND table_name='segment'").fetchone()[0])
+        "WHERE schema_name = ? AND table_name = ?", [schema, table]).fetchone()[0])
+
+
+def _has_flat(con) -> bool:
+    return _has_table(con, "flat", "segment")
 
 
 def load_roads(db: str | Path, report: bool = False, raw: bool = False):
@@ -165,10 +172,13 @@ def load_roads(db: str | Path, report: bool = False, raw: bool = False):
         df = con.execute(_report_select(con, raw) if report
                          else FLAT_SQL if flat else SEGMENT_SQL).df()
     except duckdb.CatalogException as e:
-        raise SystemExit(
-            f"{db} has no transportation.segment table — build it with "
-            f"`duckoverture build -t transportation ...`"
-        ) from e
+        # Only claim the segment table is missing when it actually is — this guard used to
+        # attribute every catalog error to it, which sent me looking in the wrong place.
+        if not _has_table(con, "transportation", "segment"):
+            raise SystemExit(
+                f"{db} has no transportation.segment table — build it with "
+                f"`duckoverture build -t transportation ...`") from e
+        raise
     finally:
         con.close()
     return gpd.GeoDataFrame(df.drop(columns=["wkb"]),
