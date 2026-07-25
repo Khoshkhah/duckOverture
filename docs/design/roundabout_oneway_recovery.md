@@ -72,18 +72,38 @@ Three options, in order of preference. Whichever is used, the result is the same
    argument, never a required one.
 3. **A user-supplied way-id list.** The escape hatch: `--roundabout-ways ids.txt`.
 
-### Proposed shape
+### Proposed shape — which layer gets what
 
-`flat.segment` gains one column:
+Roundabout-ness is **not derived from the raw data** the way `oneway` or `is_bridge` are. It is
+fetched from outside. That makes three layers, not two, and the middle one is easy to miss:
 
+| layer | holds | table |
+|---|---|---|
+| raw Overture — a faithful mirror, never written to | `sources[].record_id`, the OSM way id | `transportation.segment` *(already there)* |
+| fetched input — what OSM told us | the set of roundabout way ids | **`osm.roundabout_way`** *(new)* |
+| derived | `is_roundabout`, repaired `oneway` | `flat.segment` |
+
+**The raw table gains nothing.** Its contract is that every column is exactly as Overture
+published it; that is what lets `flat.*` be re-derived after any code change without
+re-downloading. A computed column there would destroy the ability to tell ours from theirs.
+
+**The fetched ids must be stored, not held in memory.** If the Overpass lookup lived only inside
+`flatten`, every re-flatten would need the network — and flatten is run repeatedly, once per mode.
+Persisting them means one fetch per area, after which `flatten` stays offline and re-runnable, and
+the database records what it was told (with the query and fetch time, so a stale answer is
+visible).
+
+So it becomes a separate step, mirroring how `build` and `flatten` already split:
+
+```bash
+duckoverture roundabouts area.duckdb        # fetch once, writes osm.roundabout_way
+duckoverture flatten     area.duckdb -m edges   # offline, reads it if present
 ```
-is_roundabout  BOOLEAN
-```
 
-and `oneway` becomes `oneway OR is_roundabout`, with `direction` left as-is where already known
-and taken from ring traversal order otherwise.
+`flat.segment` then gains one column, `is_roundabout BOOLEAN`, and `oneway` becomes
+`oneway OR is_roundabout`. `direction` stays as-is where already known.
 
-Nothing is inferred without a source. **With no roundabout source supplied, `is_roundabout` is
+Nothing is inferred without a source. **With no `osm.roundabout_way` table, `is_roundabout` is
 `false` everywhere and behaviour is exactly as today** — the column exists so the caveat is
 visible in the data rather than only in the README.
 
@@ -115,7 +135,8 @@ visible in the data rather than only in the README.
 
 1. **Which source do we build first** — Overpass (standalone, needs network) or duckOSM (offline,
    cross-project)? Overpass keeps duckoverture self-contained, which has been the point of the
-   project so far.
+   project so far. Either way the fetched ids land in the same `osm.roundabout_way` table, so the
+   second source can be added later without changing `flatten`.
 2. **Should `direction` be derived for repaired roundabouts?** Knowing a ring is one-way does not
    say which way. It can be recovered from traversal order around the ring plus drive-on-right,
    but that is a second algorithm and it is only needed if the consumer cares about chevrons or
