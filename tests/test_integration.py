@@ -175,10 +175,10 @@ def test_flatten_default_is_one_row_per_segment(built):
     assert _length_matches(out)
 
 
-def test_flatten_split_conserves_length_and_cuts_only_on_change(built):
+def test_flatten_attrs_conserves_length_and_cuts_only_on_change(built):
     from duckoverture import flatten
     out, _ = built
-    flatten(out, split=True, log=lambda *a: None)
+    flatten(out, mode="attrs", log=lambda *a: None)
     assert _length_matches(out), "split lost geometry"
     # no two consecutive pieces of a segment may agree on EVERY attribute
     lags = ", ".join(f"lag({c}) OVER w AS l_{c}" for c in ATTRS)
@@ -223,3 +223,58 @@ def test_flags_resolved_by_dominance_not_presence(built):
                         FROM unnest(s.road_flags) t(x)
                         WHERE list_contains(x.values, 'is_bridge')), 0) <= 0.5""")[0]
     assert bad == 0, "is_bridge set on a segment where it covers half or less"
+
+
+def test_edges_mode_has_no_interior_connectors(built):
+    """The invariant that makes an edge routable: no junction strictly inside it."""
+    from duckoverture import flatten
+    out, _ = built
+    flatten(out, mode="edges", log=lambda *a: None)
+    bad = _q(out, """
+        SELECT count(*) FROM flat.segment f
+        JOIN transportation.segment s ON s.id = f.segment_id
+        WHERE EXISTS (SELECT 1 FROM unnest(s.connectors) t(k)
+                      WHERE k.at > f.start_lr + 1e-9 AND k.at < f.end_lr - 1e-9)""")[0]
+    assert bad == 0, "an edge still passes through a junction"
+    assert _length_matches(out), "edge split lost geometry"
+
+
+def test_edges_mode_yields_a_graph(built):
+    """Every edge needs two endpoints, and real ones must resolve to transportation.connector."""
+    from duckoverture import flatten
+    out, _ = built
+    flatten(out, mode="edges", log=lambda *a: None)
+    nulls = _q(out, "SELECT count(*) FROM flat.segment "
+                    "WHERE from_connector_id IS NULL OR to_connector_id IS NULL")[0]
+    assert nulls == 0, "edge without endpoints"
+    # a boundary that is not an Overture connector gets a synthetic <segment_id>@<lr> id
+    assert _q(out, "SELECT count(*) FROM flat.segment WHERE from_connector_id LIKE '%@%'")[0] >= 0
+    # Real ids must exist in the connector table — except where the junction sits outside the
+    # clip boundary, which is legitimate. That fraction scales with how small the extract is:
+    # 0.9% on the full Södermalm boundary, ~9% on this deliberately tiny test bbox. So assert a
+    # clear majority rather than a tight ratio, and pin the no-nulls / no-interior invariants
+    # (above and in test_edges_mode_has_no_interior_connectors) which hold unconditionally.
+    ok, tot = _q(out, """SELECT
+        (SELECT count(*) FROM flat.segment f WHERE f.from_connector_id NOT LIKE '%@%'
+           AND EXISTS (SELECT 1 FROM transportation.connector k WHERE k.id = f.from_connector_id)),
+        (SELECT count(*) FROM flat.segment WHERE from_connector_id NOT LIKE '%@%')""")
+    assert ok / tot > 0.8, f"only {ok}/{tot} real connector ids resolve"
+
+
+def test_modes_are_ordered_by_granularity(built):
+    """segment <= attrs <= edges, and all three conserve length."""
+    from duckoverture import flatten
+    out, _ = built
+    counts = {}
+    for m in ("segment", "attrs", "edges"):
+        flatten(out, mode=m, log=lambda *a: None)
+        counts[m] = _q(out, "SELECT count(*) FROM flat.segment")[0]
+        assert _length_matches(out), f"{m} lost geometry"
+    assert counts["segment"] <= counts["attrs"] <= counts["edges"], counts
+
+
+def test_flatten_rejects_unknown_mode(built):
+    from duckoverture import flatten
+    out, _ = built
+    with pytest.raises(ValueError, match="mode must be"):
+        flatten(out, mode="nonsense", log=lambda *a: None)

@@ -37,18 +37,23 @@ def build_cmd(boundary: Path, output: Path, release: str, types, clip: bool) -> 
 
 @cli.command("flatten")
 @click.argument("db", type=click.Path(exists=True, path_type=Path))
-@click.option("--split/--no-split", default=False, show_default=True,
-              help="Cut segments where a resolved attribute changes, instead of one row each.")
-def flatten_cmd(db: Path, split: bool) -> None:
+@click.option("-m", "--mode", type=click.Choice(["segment", "attrs", "edges"]),
+              default="segment", show_default=True,
+              help="segment: one row each · attrs: cut on attribute change · "
+                   "edges: cut at junctions too (routable).")
+def flatten_cmd(db: Path, mode: str) -> None:
     """Derive the flat.* schema from the raw Overture tables.
 
     Overture attaches attributes to RANGES along a segment (`between: [0.43, 0.97]`). By default
     each segment stays one row, with every ranged column taking its DOMINANT rule — the one
-    covering most of the segment. --split cuts instead, wherever a resolved attribute changes.
-    Total length is conserved either way.
+    covering most of the segment.
+
+    -m edges additionally cuts at every connector, giving edges with exactly two junctions and
+    from_connector_id / to_connector_id — the routable form. Total length is conserved in all
+    modes.
     """
     from .flatten import flatten
-    flatten(db, split=split)
+    flatten(db, mode=mode)
 
 
 @cli.command("viz")

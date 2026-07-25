@@ -72,24 +72,35 @@ def _flag_coverage(flag: str) -> str:
             f"ELSE x.between[2] - x.between[1] END)), 0.0)")
 
 
-def _breakpoints() -> str:
+def _breakpoints(connectors: bool = False) -> str:
+    """Every fraction at which the segment must be cut.
+
+    Attribute ranges always contribute. With ``connectors=True`` the junction positions
+    (``connectors[].at``) are added too — that is what turns a segment into routable edges, since
+    44% of Södermalm road segments carry more than two connectors and so pass *through* junctions
+    without being split.
+    """
     parts = ", ".join(
         f"coalesce(flatten(list_transform({c}, x -> coalesce(x.between, []))), [])"
         for c in RANGED)
+    if connectors:
+        parts += ", coalesce(list_transform(connectors, c -> c.at), [])"
     return f"list_sort(list_distinct(list_concat([0.0, 1.0], {parts})))"
 
 
-_RESOLVE_SQL = f"""
+def _resolve_sql(connectors: bool = False) -> str:
+    """Cut the segment at every breakpoint and resolve each rule at the piece midpoint."""
+    return f"""
 WITH src AS (SELECT * FROM transportation.segment WHERE subtype = 'road'),
-breaks AS (SELECT *, {_breakpoints()} AS bp FROM src),
+breaks AS (SELECT *, {_breakpoints(connectors)} AS bp FROM src),
 pieces AS (
-    SELECT b.*, u.i AS piece_no, b.bp[u.i] AS s, b.bp[u.i + 1] AS e,
+    SELECT b.*, u.i AS piece_no, b.bp[u.i] AS start_lr, b.bp[u.i + 1] AS end_lr,
            (b.bp[u.i] + b.bp[u.i + 1]) / 2 AS mid
     FROM breaks b, UNNEST(range(1, len(b.bp))) AS u(i)
 )
 SELECT
     id                                          AS segment_id,
-    piece_no, s, e, geometry,
+    piece_no, start_lr, end_lr, geometry, connectors,
     class                                       AS highway,
     {_at_mid('subclass_rules')}[1].value        AS subclass,
     names.primary                               AS name,
@@ -111,24 +122,23 @@ SELECT
     -- one-way = a heading-scoped denial for motor traffic covering this piece
     len(list_filter({_at_mid('access_restrictions')},
         x -> x.access_type = 'denied' AND x."when".heading IS NOT NULL
-             AND (x."when".mode IS NULL OR list_has_any(x."when".mode,
-                  ['motor_vehicle','car','truck','hgv','bus','motorcycle','taxi','hov'])))) > 0
+             AND (x."when".mode IS NULL OR list_has_any(x."when".mode, {_MOTOR_SQL})))) > 0
                                                 AS oneway,
     -- travel direction: 'backward' denied -> runs forward, and vice versa
     CASE WHEN len(list_filter({_at_mid('access_restrictions')},
               x -> x.access_type = 'denied' AND x."when".heading = 'forward'
-                   AND (x."when".mode IS NULL OR list_has_any(x."when".mode,
-                        ['motor_vehicle','car','truck','hgv','bus','motorcycle','taxi','hov'])))) > 0
+                   AND (x."when".mode IS NULL OR list_has_any(x."when".mode, {_MOTOR_SQL})))) > 0
          THEN 'backward' ELSE 'forward' END     AS direction
 FROM pieces
 """
+
 
 _WHOLE_SQL = f"""
 SELECT
     id                                          AS piece_id,
     id                                          AS segment_id,
     1                                           AS piece_no,
-    0.0 AS s, 1.0 AS e,
+    0.0 AS start_lr, 1.0 AS end_lr,
     class                                       AS highway,
     {_dominant('subclass_rules')}.value         AS subclass,
     names.primary                               AS name,
@@ -171,53 +181,92 @@ _ATTRS = ["highway", "subclass", "name", "level", "surface", "width_m", "maxspee
 _CHANGED = " OR ".join(
     f"{c} IS DISTINCT FROM lag({c}) OVER w" for c in _ATTRS)
 
-FLAT_SEGMENT_SQL = f"""
-WITH resolved AS ({_RESOLVE_SQL}),
+def _split_sql(connectors: bool = False) -> str:
+    """Merge adjacent pieces that agree on every attribute, then re-cut the geometry.
+
+    With ``connectors=True`` a piece boundary that sits on a connector is never merged away — the
+    junction has to survive or the result is not routable. That is the difference between "flat
+    attributes" and "edges you can route on": 44% of Södermalm road segments carry more than two
+    connectors, i.e. they pass straight through junctions.
+
+    Boundary connector ids come out as ``from_connector_id`` / ``to_connector_id``. Where a
+    boundary is an attribute change rather than a junction there is no Overture connector, so a
+    synthetic ``<segment_id>@<lr>`` id is minted — the same approach as
+    OvertureMaps/transportation-splitter, which calls them artificial connectors.
+    """
+    # a boundary that coincides with a connector must force a cut, even if attributes match
+    on_conn = ("len(list_filter(connectors, c -> c.at = start_lr)) > 0"
+               if connectors else "FALSE")
+    changed = " OR ".join(f"{c} IS DISTINCT FROM lag({c}) OVER w" for c in _ATTRS)
+    conn_at = ("list_filter(any_value(connectors), c -> c.at = {lr})[1].connector_id"
+               if connectors else "NULL")
+    return f"""
+WITH resolved AS ({_resolve_sql(connectors)}),
 marked AS (
-    SELECT *, CASE WHEN piece_no = 1 OR ({_CHANGED}) THEN 1 ELSE 0 END AS is_new
+    SELECT *, CASE WHEN piece_no = 1 OR ({changed}) OR ({on_conn}) THEN 1 ELSE 0 END AS is_new
     FROM resolved
     WINDOW w AS (PARTITION BY segment_id ORDER BY piece_no)
 ),
 runs AS (
     SELECT *, sum(is_new) OVER (PARTITION BY segment_id ORDER BY piece_no
                                 ROWS UNBOUNDED PRECEDING) AS run_no
-    FROM marked
+    FROM runs_src
 )
 SELECT
     segment_id || '#' || run_no                 AS piece_id,
     segment_id, run_no                          AS piece_no,
-    min(s)                                      AS s,
-    max(e)                                      AS e,
+    min(start_lr)                               AS start_lr,
+    max(end_lr)                                 AS end_lr,
+    coalesce({conn_at.format(lr='min(start_lr)')},
+             segment_id || '@' || min(start_lr)) AS from_connector_id,
+    coalesce({conn_at.format(lr='max(end_lr)')},
+             segment_id || '@' || max(end_lr))   AS to_connector_id,
     {", ".join(f"any_value({c}) AS {c}" for c in _ATTRS)},
-    ST_Length_Spheroid(ST_LineSubstring(any_value(geometry), min(s), max(e))) AS length_m,
-    ST_LineSubstring(any_value(geometry), min(s), max(e))                     AS geometry
+    ST_Length_Spheroid(ST_LineSubstring(any_value(geometry), min(start_lr), max(end_lr)))
+                                                AS length_m,
+    ST_LineSubstring(any_value(geometry), min(start_lr), max(end_lr))
+                                                AS geometry
 FROM runs
 GROUP BY segment_id, run_no
-"""
+""".replace("FROM runs_src", "FROM marked")
 
 
-def flatten(db: str | Path, split: bool = False, log=print) -> dict[str, int]:
+MODES = ("segment", "attrs", "edges")
+
+
+def flatten(db: str | Path, mode: str = "segment", log=print) -> dict[str, int]:
     """Build the `flat.*` schema from the raw Overture tables. Idempotent.
 
-    ``split=False`` (default) gives one row per Overture segment, each ranged attribute taken from
-    its dominant (longest-covering) rule. ``split=True`` cuts segments where a resolved attribute
-    changes.
+    ``mode``:
+
+    - ``segment`` (default) — one row per Overture segment, each ranged attribute from its
+      dominant (longest-covering) rule. Joins 1:1 on ``segment_id``.
+    - ``attrs`` — cut where a resolved attribute changes.
+    - ``edges`` — cut at junctions **and** attribute changes, with ``from_connector_id`` /
+      ``to_connector_id``. This is the routable form: 44% of Södermalm road segments carry more
+      than two connectors, so without it a "segment" runs straight through junctions.
     """
+    if mode not in MODES:
+        raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
     con = duckdb.connect(str(db))
     con.execute("INSTALL spatial; LOAD spatial;")
     con.execute("CREATE SCHEMA IF NOT EXISTS flat")
     stats: dict[str, int] = {}
 
     t0 = time.perf_counter()
-    con.execute(f"CREATE OR REPLACE TABLE flat.segment AS "
-                f"{FLAT_SEGMENT_SQL if split else _WHOLE_SQL}")
+    sql = {"segment": _WHOLE_SQL,
+           "attrs": _split_sql(connectors=False),
+           "edges": _split_sql(connectors=True)}[mode]
+    con.execute(f"CREATE OR REPLACE TABLE flat.segment AS {sql}")
     n = con.execute("SELECT count(*) FROM flat.segment").fetchone()[0]
     src = con.execute(
         "SELECT count(*) FROM transportation.segment WHERE subtype='road'").fetchone()[0]
     stats["flat.segment"] = n
-    mode = "split at attribute changes" if split else "one row per segment (dominant rule)"
-    log(f"  flat.segment  {src:,} segments -> {n:,} rows "
-        f"[{mode}]  {time.perf_counter()-t0:.1f}s")
+    desc = {"segment": "one row per segment (dominant rule)",
+            "attrs": "split at attribute changes",
+            "edges": "split at junctions + attribute changes (routable)"}[mode]
+    log(f"  flat.segment  {src:,} segments -> {n:,} rows [{desc}]  "
+        f"{time.perf_counter()-t0:.1f}s")
 
     # length conservation is the invariant that says the split was clean
     a, b = con.execute("""SELECT (SELECT sum(length_m) FROM flat.segment),
