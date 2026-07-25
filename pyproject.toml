@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "duckoverture"
+version = "0.1.0"
+description = "Give it a boundary, get a DuckDB of every Overture Maps table for that area"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+keywords = ["overture", "duckdb", "gis", "openstreetmap", "geoparquet"]
+dependencies = ["duckdb>=1.1", "click>=8.1"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+duckoverture = "duckoverture.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
