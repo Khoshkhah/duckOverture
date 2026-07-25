@@ -48,6 +48,9 @@ def flatten_cmd(db: Path, mode: str) -> None:
     each segment stays one row, with every ranged column taking its DOMINANT rule — the one
     covering most of the segment.
 
+    Run `duckoverture roundabouts` first to repair the one-way that Overture drops on
+    roundabouts; without it `is_roundabout` is false everywhere.
+
     -m edges additionally cuts at every connector, giving edges with exactly two junctions and
     from_connector_id / to_connector_id — the routable form. It also builds flat.turn_restriction,
     renumbering Overture's prohibited_transitions onto the split pieces at both ends. Total length
@@ -55,6 +58,25 @@ def flatten_cmd(db: Path, mode: str) -> None:
     """
     from .flatten import flatten
     flatten(db, mode=mode)
+
+
+@cli.command("roundabouts")
+@click.argument("db", type=click.Path(exists=True, path_type=Path))
+@click.option("--endpoint", default=None,
+              help="Overpass endpoint. Default: overpass-api.de, falling back to mirrors.")
+@click.option("--timeout", default=180, show_default=True, help="Overpass query timeout, seconds.")
+def roundabouts_cmd(db: Path, endpoint: str | None, timeout: int) -> None:
+    """Fetch junction=roundabout way ids from Overpass, for the extract's boundary.
+
+    Overture drops OSM's roundabout tag and the `oneway=yes` it implies, so roundabouts come out
+    two-way and a router sends vehicles the wrong way round them. `sources[].record_id` is the OSM
+    way id, so the fact can be looked up instead of guessed from shape.
+
+    Run this once per area, then `duckoverture flatten` applies it offline. Without it,
+    `is_roundabout` is false everywhere and nothing changes.
+    """
+    from .roundabouts import fetch
+    fetch(db, endpoint=endpoint, timeout=timeout)
 
 
 @cli.command("viz")

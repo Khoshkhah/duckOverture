@@ -315,9 +315,33 @@ never materialised into `access_restrictions`. Measured on Nacka (210 roundabout
 | OSM / duckOSM | 210 | **210 (100%)** |
 | Overture | 208 | **52 (25%)** |
 
-**75% come out two-way.** Do not route on `flat.segment` around roundabouts without repairing
-this — you will send vehicles the wrong way. Detecting closed rings in `connectors` would be the
-fix; it is not implemented.
+**75% come out two-way.** Fixed — one extra command:
+
+```bash
+duckoverture roundabouts area.duckdb    # then flatten as usual
+```
+
+```
+overpass  bbox 18.1111,59.2484 -> 18.3113,59.3265
+  osm.roundabout_way  193 roundabout ways
+  217 segments in this extract sit on one
+```
+
+Nacka roundabout edges go from **17% one-way to 100%**, and `flat.segment` gains `is_roundabout`.
+
+**It is a lookup, not a guess.** `sources[].record_id` is the OSM way id verbatim
+(`w288602249@7`), present on **98.1% of road segments** — so the roundabout tag Overture dropped
+can be fetched back from OSM by id. Precision is 100%: of 233 flagged edges, 190 are confirmed by
+duckOSM and the other 43 were checked against live OSM, where all 25 underlying ways really are
+`junction=roundabout`.
+
+Detecting circles geometrically was tried first and **rejected** — 22–35% precision, because small
+city blocks, parking loops and courtyards are also small circles. It would have marked ~55 ordinary
+streets one-way, which is worse than the bug. `ST_IsClosed` finds zero, since Overture splits every
+ring. See [docs/design/roundabout_oneway_recovery.md](docs/design/roundabout_oneway_recovery.md).
+
+Without running `roundabouts`, `is_roundabout` is false everywhere and behaviour is unchanged — the
+column makes the caveat visible in the data rather than only here.
 
 ### "Two-way" is inferred from silence
 

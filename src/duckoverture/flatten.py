@@ -31,6 +31,8 @@ from pathlib import Path
 
 import duckdb
 
+from .roundabouts import have_roundabouts
+
 # Rule columns that carry a `between` range. Their breakpoints define where a segment is cut.
 # `sources` is easy to overlook and matters most: it carries provenance ranges on EVERY road, and
 # omitting it left us 1,117 pieces short of Overture's own splitter, which considers all columns.
@@ -125,6 +127,39 @@ def _vehicle_limit(col: str, dim: str, unit: str) -> str:
             v -> v.value))""")
 
 
+# The roundabout way ids fetched by `duckoverture roundabouts`. A scalar subquery, so DuckDB
+# evaluates it once rather than inlining thousands of literals into the SQL.
+_RB_IDS = "(SELECT coalesce(list(osm_way_id), []) FROM osm.roundabout_way)"
+_OSM_WAY = "try_cast(regexp_extract({0}.record_id, '^w(\\d+)', 1) AS BIGINT)"
+
+
+def _is_roundabout(col: str, have: bool) -> str:
+    """Whether this stretch sits on an OSM way tagged `junction=roundabout`.
+
+    Resolved through `sources` ranges rather than the whole column, because Overture MERGES OSM
+    ways: 1,384 of 14,594 Nacka road segments (9.5%) reference more than one, so a segment can be
+    a roundabout for part of its length and an ordinary road for the rest.
+    """
+    if not have:
+        return "FALSE"
+    ways = f"list_transform({col}, x -> {_OSM_WAY.format('x')})"
+    return f"coalesce(list_has_any({ways}, {_RB_IDS}), FALSE)"
+
+
+def _is_roundabout_dominant(have: bool) -> str:
+    """Whole-segment mode: the roundabout must cover MOST of the segment, not merely touch it.
+
+    Dominance rather than presence, and deliberately the opposite choice to `motor_access`. The
+    costs are reversed here: wrongly closing a road only makes a router avoid it, but wrongly
+    marking one one-way makes it untraversable in the other direction — so over-reporting is the
+    dangerous side and we require the roundabout to be the dominant source.
+    """
+    if not have:
+        return "FALSE"
+    return (f"coalesce(list_contains({_RB_IDS}, "
+            f"{_OSM_WAY.format(_dominant('sources'))}), FALSE)")
+
+
 def _breakpoints(connectors: bool = False) -> str:
     """Every fraction at which the segment must be cut.
 
@@ -155,7 +190,7 @@ def _breakpoints(connectors: bool = False) -> str:
     return f"list_sort(list_distinct({snapped}))"
 
 
-def _resolve_sql(connectors: bool = False) -> str:
+def _resolve_sql(connectors: bool = False, have_rb: bool = False) -> str:
     """Cut the segment at every breakpoint and resolve each rule at the piece midpoint."""
     return f"""
 WITH src AS (SELECT * FROM transportation.segment WHERE subtype = 'road'),
@@ -201,7 +236,10 @@ SELECT
     len(list_filter({_at_mid('access_restrictions')},
         x -> x.access_type = 'denied' AND x."when".heading IS NOT NULL
              AND (x."when".mode IS NULL OR list_has_any(x."when".mode, {_MOTOR_SQL})))) > 0
+             OR {_is_roundabout(_at_mid('sources'), have_rb)}
                                                 AS oneway,
+    -- Overture drops junction=roundabout and the oneway it implies; recovered by way-id lookup.
+    {_is_roundabout(_at_mid('sources'), have_rb)}   AS is_roundabout,
     -- travel direction: 'backward' denied -> runs forward, and vice versa
     CASE WHEN len(list_filter({_at_mid('access_restrictions')},
               x -> x.access_type = 'denied' AND x."when".heading = 'forward'
@@ -216,7 +254,8 @@ FROM pieces
 """
 
 
-_WHOLE_SQL = f"""
+def _whole_sql(have_rb: bool = False) -> str:
+    return f"""
 SELECT
     id                                          AS piece_id,
     id                                          AS segment_id,
@@ -240,7 +279,9 @@ SELECT
     len(list_filter(access_restrictions,
         x -> x.access_type = 'denied' AND x."when".heading IS NOT NULL
              AND (x."when".mode IS NULL OR list_has_any(x."when".mode, {_MOTOR_SQL})))) > 0
+             OR {_is_roundabout_dominant(have_rb)}
                                                 AS oneway,
+    {_is_roundabout_dominant(have_rb)}          AS is_roundabout,
     CASE WHEN len(list_filter(access_restrictions,
               x -> x.access_type = 'denied' AND x."when".heading = 'forward'
                    AND (x."when".mode IS NULL OR list_has_any(x."when".mode, {_MOTOR_SQL})))) > 0
@@ -263,7 +304,7 @@ WHERE subtype = 'road'
 # these are the same road and must not be separate rows.
 _ATTRS = ["highway", "subclass", "name", "level", "surface", "width_m", "maxspeed_kmh",
           "is_bridge", "is_tunnel", "is_link", "oneway", "direction",
-          "motor_access", "max_height_m", "max_weight_t"]
+          "motor_access", "max_height_m", "max_weight_t", "is_roundabout"]
 
 # Splitting at every `between` over-fragments badly: breakpoints come from rules that often resolve
 # to the same value, so a 932 m footpath came out as 16 pieces of which 15 were identical. Cut only
@@ -272,7 +313,8 @@ _ATTRS = ["highway", "subclass", "name", "level", "surface", "width_m", "maxspee
 _CHANGED = " OR ".join(
     f"{c} IS DISTINCT FROM lag({c}) OVER w" for c in _ATTRS)
 
-def _split_sql(connectors: bool = False, merge: bool = True) -> str:
+def _split_sql(connectors: bool = False, merge: bool = True,
+               have_rb: bool = False) -> str:
     """Merge adjacent pieces that agree on every attribute, then re-cut the geometry.
 
     With ``connectors=True`` a piece boundary that sits on a connector is never merged away — the
@@ -298,7 +340,7 @@ def _split_sql(connectors: bool = False, merge: bool = True) -> str:
                f"c -> abs(c.at - {{lr}}) < 1e-6)[1].connector_id"
                if connectors else "NULL")
     return f"""
-WITH resolved AS ({_resolve_sql(connectors)}),
+WITH resolved AS ({_resolve_sql(connectors, have_rb)}),
 marked AS (
     -- A piece shorter than MIN_SPLIT_M is not a real split: two source values naming the same
     -- place a fraction of a millimetre apart. Absorb it into the previous run rather than emit a
@@ -419,11 +461,14 @@ def flatten(db: str | Path, mode: str = "segment", log=print) -> dict[str, int]:
     stats: dict[str, int] = {}
 
     t0 = time.perf_counter()
-    sql = {"segment": _WHOLE_SQL,
-           "attrs": _split_sql(connectors=False, merge=True),
+    # Roundabout repair only applies if `duckoverture roundabouts` has been run; without it
+    # is_roundabout is FALSE everywhere and behaviour is exactly as before.
+    have_rb = have_roundabouts(con)
+    sql = {"segment": _whole_sql(have_rb),
+           "attrs": _split_sql(connectors=False, merge=True, have_rb=have_rb),
            # edges is deliberately UNMERGED: row-for-row comparable with
            # OvertureMaps/transportation-splitter run with split_at_connectors=True
-           "edges": _split_sql(connectors=True, merge=False)}[mode]
+           "edges": _split_sql(connectors=True, merge=False, have_rb=have_rb)}[mode]
     con.execute(f"CREATE OR REPLACE TABLE flat.segment AS {sql}")
     n = con.execute("SELECT count(*) FROM flat.segment").fetchone()[0]
     src = con.execute(

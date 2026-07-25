@@ -1,6 +1,28 @@
 # Recovering the one-way that Overture drops on roundabouts
 
-**Status:** proposed, not implemented. Measured on Nacka, Overture release `2026-07-22.0`.
+**Status:** **IMPLEMENTED** 2026-07-25 via Overpass (`duckoverture roundabouts`). Measured on
+Nacka, Overture release `2026-07-22.0`.
+
+## Result
+
+```
+duckoverture roundabouts nacka.duckdb
+  osm.roundabout_way  193 roundabout ways
+  217 segments in this extract sit on one
+duckoverture flatten nacka.duckdb -m edges
+```
+
+| | before | after |
+|---|---:|---:|
+| roundabout edges marked one-way | 33 / 190 (**17%**) | **233 / 233 (100%)** |
+
+**Precision 100%, verified twice.** 190 of the 233 are confirmed by duckOSM's `junction` tag. The
+other 43 looked like false positives until checked: their 25 underlying OSM ways were queried
+directly against Overpass and **all 25 are `junction=roundabout`**. duckOSM's Nacka snapshot is
+simply older than live OSM. Nothing was wrongly marked one-way — which was the failure mode that
+ruled out the geometric approach.
+
+Row counts are unchanged (30,865 edges), so splitter parity is unaffected.
 
 ## Problem
 
@@ -141,6 +163,23 @@ visible in the data rather than only in the README.
    say which way. It can be recovered from traversal order around the ring plus drive-on-right,
    but that is a second algorithm and it is only needed if the consumer cares about chevrons or
    turn costs, not for banning wrong-way traversal.
-3. **Do `mini_roundabout` (28 edges) and `teardrop` (22) count?** Neither implies `oneway` in OSM
-   the way `junction=roundabout` does. Proposal: recover them into `is_roundabout` but do **not**
-   force `oneway` from them.
+3. **Do `mini_roundabout` and `teardrop` count?** Neither implies `oneway` in OSM the way
+   `junction=roundabout` does. **Decided: excluded.** The Overpass query asks for
+   `junction=roundabout` only.
+
+## Resolved during implementation
+
+- **Overture merges OSM ways**, so `sources` ranges are load-bearing: 1,384 of 14,594 Nacka road
+  segments (9.5%) reference more than one way, and a segment can be a roundabout for part of its
+  length. `is_roundabout` therefore resolves through `_at_mid('sources')` in the split modes, not
+  a whole-column check.
+- **`-m segment` uses dominance, not presence** — deliberately the opposite of `motor_access`.
+  Wrongly closing a road only makes a router avoid it; wrongly marking one one-way makes it
+  untraversable in the other direction, so over-reporting is the dangerous side here.
+- **`direction` is left as `forward`.** `junction=roundabout` implies one-way *in the drawn
+  direction*, and Overture preserves OSM's geometry direction in 155 of 169 spot-checks, so
+  chevrons point the right way. The residual ~8% is unverified — the comparison is crude because
+  duckOSM contracts edges differently.
+- **The main Overpass endpoint 504s often**, including on the first run here, so `fetch` falls
+  through to mirrors rather than making the user find `--endpoint` in a stack trace. Mirrors lag
+  each other slightly (193 ways vs 195 from a mirror minutes apart).

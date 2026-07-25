@@ -143,13 +143,13 @@ def test_report_requires_flatten(built, tmp_path):
 from duckoverture.flatten import _ATTRS as ATTRS  # noqa: E402
 
 
-def _q(out, sql):
+def _q(out, sql, params=None):
     """Query and CLOSE — a lingering read-only handle locks the next flatten()."""
     import duckdb as _d
     con = _d.connect(str(out), read_only=True)
     con.execute("LOAD spatial;")
     try:
-        return con.execute(sql).fetchone()
+        return con.execute(sql, params or []).fetchone()
     finally:
         con.close()
 
@@ -415,11 +415,58 @@ def test_access_is_present_in_every_mode(built):
         assert {"motor_access", "max_height_m", "max_weight_t"} <= cols, mode
 
 
-def _q_all(out, sql):
+def _q_all(out, sql, params=None):
     import duckdb as _d
-    con = _d.connect(str(out), read_only=True)
+    con = _d.connect(str(out), read_only="DROP" not in sql.upper())
     con.execute("LOAD spatial;")
     try:
-        return con.execute(sql).fetchall()
+        return con.execute(sql, params or []).fetchall()
     finally:
         con.close()
+
+
+def test_roundabout_repair_is_inert_without_a_source(built):
+    """No fetch, no change. The column exists so the caveat is visible in the data, not just docs."""
+    from duckoverture import flatten
+    out, _ = built
+    _q_all(out, "DROP TABLE IF EXISTS osm.roundabout_way")
+    flatten(out, mode="edges", log=lambda *a: None)
+    assert _q(out, "SELECT count(*) FROM flat.segment WHERE is_roundabout")[0] == 0
+
+
+def test_roundabout_forces_oneway_via_osm_way_id(built):
+    """A way id in osm.roundabout_way must reach flat.segment through sources[].record_id.
+
+    Overture MERGES OSM ways — 9.5% of Nacka road segments reference more than one — so this is
+    resolved through the `sources` ranges, not a whole-column check.
+    """
+    import duckdb as _d
+    from duckoverture import flatten
+    out, _ = built
+
+    con = _d.connect(str(out))
+    con.execute("LOAD spatial;")
+    # pick a real two-way segment and plant its OSM way id as a roundabout
+    seg, way = con.execute("""
+        SELECT s.id, try_cast(regexp_extract(x.record_id, '^w(\\d+)', 1) AS BIGINT)
+        FROM transportation.segment s, unnest(s.sources) t(x)
+        WHERE s.subtype = 'road' AND x.record_id LIKE 'w%'
+          AND len(coalesce(s.access_restrictions, [])) = 0
+        LIMIT 1""").fetchone()
+    con.execute("CREATE SCHEMA IF NOT EXISTS osm")
+    con.execute("CREATE OR REPLACE TABLE osm.roundabout_way AS "
+                "SELECT ?::BIGINT AS osm_way_id, 'test' AS fetched_at, "
+                "       'test' AS source, '' AS query", [way])
+    con.close()
+
+    flatten(out, mode="edges", log=lambda *a: None)
+    flagged, oneway = _q(out, """SELECT count(*), count(*) FILTER (WHERE oneway)
+                                 FROM flat.segment WHERE segment_id = ?""", [seg])
+    assert flagged > 0, "the planted way id never reached flat.segment"
+    assert flagged == oneway, "a roundabout must come out one-way"
+
+    # and nothing else moved
+    assert _q(out, """SELECT count(*) FROM flat.segment
+        WHERE is_roundabout AND segment_id <> ?""", [seg])[0] == 0
+
+    _q_all(out, "DROP TABLE IF EXISTS osm.roundabout_way")
