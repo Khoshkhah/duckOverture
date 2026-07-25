@@ -380,9 +380,21 @@ are flatly closed read as ordinary two-way streets. Three columns now carry the 
 
 | column | Södermalm (`-m edges`) |
 |---|---|
-| `motor_access` — `yes` / `restricted` / `no` | 10,022 · 86 · **59** |
+| `motor_access` — `yes` / `restricted` / `no` | 4,054 · 125 · **5,988** |
 | `max_height_m` | 100 edges, 1.8–14.7 m |
 | `max_weight_t` | 22 edges, 3.5–14.0 t |
+
+**The class implies access, and Overture stays silent about it.** `highway=footway` means no cars
+in OSM without anyone writing a tag, and Overture inherits that: of 5,968 Södermalm edges on
+non-motor classes it explicitly denies motor traffic on **18**. Reading `access_restrictions`
+alone therefore called 156 km of footway, steps and cycleway drivable — 60% of everything marked
+`yes`. So `motor_access` starts from the class (`footway`, `steps`, `path`, `pedestrian`,
+`cycleway`, `bridleway` are closed) and lets explicit rules override it. `track` stays motorised;
+`unknown` is left alone rather than guessed at.
+
+The result cross-checks against a completely independent pipeline: **131,291 m** drivable here
+against duckOSM's **129,032 m** driving network built from the OSM PBF — 1.8% apart. Before the
+class rule it was 285,256 m, 2.2× the truth.
 
 The trap is the opposite error. **66 of the 118 non-directional motor denials are vehicle size
 limits** — "no vehicles over 3 m" is a lorry sign, not a closed road. Counting those as closures

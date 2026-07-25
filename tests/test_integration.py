@@ -508,3 +508,25 @@ def test_report_draws_piece_geometry_not_whole_segment(built):
     import geopandas as gpd
     m = gpd.GeoSeries(g.geometry, crs=4326).to_crs(3006).length
     assert (abs(m - g.length_m) < 1.0).mean() > 0.99, "drawn length disagrees with length_m"
+
+
+def test_motor_access_respects_the_class_not_just_the_rules(built):
+    """A footway is closed to cars whether or not Overture bothers to say so.
+
+    OSM lets the class IMPLY access — highway=footway means no cars with no tag written — and
+    Overture inherits the silence: on Södermalm it explicitly denies motor traffic on 18 of 5,968
+    non-motor edges. Reading access_restrictions alone called 156 km of footway, steps and cycleway
+    drivable, which is 60% of everything the column marked `yes`.
+    """
+    from duckoverture import flatten
+    out, _ = built
+    flatten(out, mode="edges", log=lambda *a: None)
+
+    bad = _q(out, """SELECT count(*) FROM flat.segment
+        WHERE motor_access = 'yes'
+          AND class IN ('footway', 'steps', 'path', 'pedestrian', 'cycleway', 'bridleway')""")[0]
+    assert bad == 0, f"{bad} non-motor edges still marked drivable"
+
+    # but a car road with nothing said stays open — this must not close the whole network
+    assert _q(out, """SELECT count(*) FROM flat.segment
+        WHERE motor_access = 'yes' AND class IN ('residential', 'secondary', 'tertiary')""")[0] > 0

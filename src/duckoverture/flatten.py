@@ -126,8 +126,26 @@ def _motor_allowed(col: str) -> str:
             AND (x."when"."mode" IS NULL OR list_has_any(x."when"."mode", {_MOTOR_SQL})))) > 0""")
 
 
+# Classes that are not motor infrastructure. OSM lets the class IMPLY the access rule —
+# highway=footway means no cars without anyone writing it down — and Overture inherits that
+# silence: of 5,968 Södermalm edges on these classes, it explicitly denies motor traffic on 18.
+# Reading access_restrictions alone therefore called 156 km of footway, steps and cycleway
+# drivable. `track` stays motorised (agricultural access) and `unknown` is left alone rather than
+# guessed at.
+_NON_MOTOR = "('footway', 'steps', 'path', 'pedestrian', 'cycleway', 'bridleway')"
+
+
 def _motor_access(col: str) -> str:
-    return (f"CASE WHEN {_denial(col, False)} AND NOT {_motor_allowed(col)} THEN 'no' "
+    """Can a car use this stretch: 'yes' | 'restricted' | 'no'.
+
+    Order matters. An explicit unqualified denial beats everything; otherwise a non-motor class is
+    closed unless Overture explicitly lets motor traffic in, which is how a pedestrian street with
+    delivery access comes out `restricted` rather than `no`.
+    """
+    return (f"CASE "
+            f"WHEN {_denial(col, False)} AND NOT {_motor_allowed(col)} THEN 'no' "
+            f"WHEN class IN {_NON_MOTOR} THEN "
+            f"  CASE WHEN {_motor_allowed(col)} THEN 'restricted' ELSE 'no' END "
             f"WHEN {_denial(col, False)} OR {_denial(col, True)} THEN 'restricted' "
             f"ELSE 'yes' END")
 
