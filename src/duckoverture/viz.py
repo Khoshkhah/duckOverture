@@ -7,7 +7,7 @@ grade-separation sandwich:
 
     class        -> class               (kept under Overture's own name)
     road_flags   -> is_bridge / is_tunnel  (list of struct(values[], between[]))
-    level_rules  -> layer               (list of struct(value, between[]))
+    level_rules  -> level               (list of struct(value, between[]))
     speed_limits -> maxspeed_kmh        (list of struct(max_speed struct(value, unit)))
 
 **Prefers `flat.segment` when it exists.** That table resolves each ranged attribute from its
@@ -58,7 +58,7 @@ SELECT
                   'is_bridge')                                     AS is_bridge,
     list_contains(flatten(list_transform(road_flags, x -> x.values)),
                   'is_tunnel')                                     AS is_tunnel,
-    CAST(level_rules[1].value AS VARCHAR)                          AS layer,
+    CAST(level_rules[1].value AS VARCHAR)                          AS level,
     speed_limits[1].max_speed.value                                AS maxspeed_kmh,
     {ONEWAY_EXPR}                                                  AS oneway,
     ST_AsWKB({GEOM_EXPR})                                          AS wkb
@@ -88,7 +88,7 @@ def _report_select(con, raw: bool = False) -> str:
         "f.\"class\"", "f.subclass", "f.name",
         # resolved scalars
         "f.maxspeed_kmh", "f.oneway", "f.direction", "f.surface", "f.width_m",
-        "round(f.length_m, 1) AS length_m", "f.level AS layer",
+        "round(f.length_m, 1) AS length_m", "f.level",
         "f.is_bridge", "f.is_tunnel",
         "f.is_link",
         # resolved access — the raw `access` field below is the evidence behind it
@@ -148,7 +148,7 @@ def default_output(db: str | Path) -> Path:
 # dominant rule — so when it exists the map uses corrected values instead of re-deriving them
 # with the naive `[1]` shortcut.
 FLAT_SQL = """
-SELECT piece_id, segment_id, "class", subclass, name, level AS layer,
+SELECT piece_id, segment_id, "class", subclass, name, level,
        is_bridge, is_tunnel,
        maxspeed_kmh, oneway, surface, width_m, length_m, motor_access,
        ST_AsWKB(CASE WHEN direction = 'backward' THEN ST_Reverse(geometry)
@@ -167,7 +167,13 @@ def _has_flat(con) -> bool:
     return _has_table(con, "flat", "segment")
 
 
-def load_roads(db: str | Path, report: bool = False, raw: bool = False):
+# `motor_access = 'no'` is the resolved answer to "can a car use this", class rule included, so a
+# drivable filter is one predicate rather than a class list that would drift from flatten's.
+_DRIVABLE = "motor_access <> 'no'"
+
+
+def load_roads(db: str | Path, report: bool = False, raw: bool = False,
+               drivable: bool = False):
     """Overture road segments as a GeoDataFrame with roadstyle-shaped columns.
 
     ``report=True`` keeps **every** Overture column as well, nested ones as JSON text, for the
@@ -179,8 +185,12 @@ def load_roads(db: str | Path, report: bool = False, raw: bool = False):
     con.execute("INSTALL spatial; LOAD spatial;")
     flat = not report and _has_flat(con)
     try:
-        df = con.execute(_report_select(con, raw) if report
-                         else FLAT_SQL if flat else SEGMENT_SQL).df()
+        sql = _report_select(con, raw) if report else FLAT_SQL if flat else SEGMENT_SQL
+        if drivable:
+            if not (report or flat):
+                raise SystemExit("--drivable needs flat.segment — run `duckoverture flatten` first")
+            sql = f"SELECT * FROM ({sql}) WHERE {_DRIVABLE}"
+        df = con.execute(sql).df()
     except duckdb.CatalogException as e:
         # Only claim the segment table is missing when it actually is — this guard used to
         # attribute every catalog error to it, which sent me looking in the wrong place.
@@ -197,7 +207,7 @@ def load_roads(db: str | Path, report: bool = False, raw: bool = False):
 
 def render(db: str | Path, out: str | Path, palette: str = "highsat",
            backend: str = "web", report: bool = False, raw: bool = False,
-           log=print) -> Path:
+           drivable: bool = False, tiles: bool = False, log=print) -> Path:
     """Render the road network of an extract to a self-contained HTML map.
 
     ``report=True`` produces the **inspection** version: every Overture column travels with the
@@ -209,22 +219,31 @@ def render(db: str | Path, out: str | Path, palette: str = "highsat",
     except ImportError as e:                                    # pragma: no cover
         raise SystemExit('viz needs roadstyle: pip install "duckoverture[viz]"') from e
 
-    g = load_roads(db, report=report, raw=raw)
+    g = load_roads(db, report=report, raw=raw, drivable=drivable)
     if not report:
         import duckdb as _d
         _c = _d.connect(str(db), read_only=True)
         log("  source: flat.segment (dominant-rule values)" if _has_flat(_c)
             else "  source: transportation.segment (raw; run `duckoverture flatten` for corrected values)")
         _c.close()
+    if drivable:
+        log("  --drivable: motor_access <> 'no' (footways, steps, cycleways dropped)")
+    if tiles:
+        log("  --tiles: PMTiles vector tiles embedded (needs roadstyle[tiles])")
     log(f"{len(g):,} road segments  |  oneway {int(g.oneway.sum()):,} · "
         f"bridges {g.is_bridge.fillna(False).sum():,} · "
         f"tunnels {g.is_tunnel.fillna(False).sum():,} · "
-        f"levelled {g.layer.notna().sum():,} · speed limits {g.maxspeed_kmh.notna().sum():,}")
+        f"levelled {g.level.notna().sum():,} · speed limits {g.maxspeed_kmh.notna().sum():,}")
     # roadstyle defaults these to "bridge"/"tunnel". We name them is_bridge/is_tunnel to match
     # flat.segment, so they have to be passed — without this the grade-separation sandwich silently
     # flattens and every tunnel draws on top of the road above it.
     kw = dict(backend=backend, palette=palette, highway_col="class",
-              bridge_col="is_bridge", tunnel_col="is_tunnel")
+              bridge_col="is_bridge", tunnel_col="is_tunnel", layer_col="level")
+    if tiles:
+        # PMTiles archive embedded in the page and served through addProtocol, so the file still
+        # opens from disk. MapLibre then decodes only the tiles in view instead of tessellating
+        # every vertex at every zoom — which is the whole cost on a 30k-vertex network.
+        kw["tiles"] = True
     if report:
         log(f"  report mode: {len(g.columns) - 1} fields per road in the click panel")
         kw.update(road_popup="all", popup_mode="panel", road_tooltip=["name", "class"])
@@ -232,7 +251,7 @@ def render(db: str | Path, out: str | Path, palette: str = "highsat",
         # the default popup list names "bridge"/"tunnel", which no longer exist here
         kw.update(tooltip=["name", "class", "subclass", "maxspeed_kmh"],
                   road_popup=["name", "class", "subclass", "maxspeed_kmh", "oneway",
-                              "is_bridge", "is_tunnel", "layer", "length_m"])
+                              "is_bridge", "is_tunnel", "level", "length_m"])
     m = rs.render_edges(g, **kw)
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
