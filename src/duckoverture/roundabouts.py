@@ -82,7 +82,11 @@ def fetch(db: str | Path, endpoint: str | None = None, timeout: int = 180,
             """).fetchone()[0]
         log(f"  {hit:,} segments in this extract sit on one")
         if ids and not hit:
-            log("  none matched — is the boundary the same area the extract was built from?")
+            # Overpass takes a bbox; the extract is clipped to a polygon inside it. Ways in the
+            # corners are expected and the join drops them — Södermalm is an island whose bbox
+            # covers mainland roundabouts, and it genuinely has none of its own.
+            log("  none of them fall inside the clipped boundary — the bbox is a superset, so "
+                "this is normal for a non-rectangular area")
         log("  run `duckoverture flatten` to apply it to oneway")
         return len(ids)
     finally:
