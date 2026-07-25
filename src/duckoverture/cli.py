@@ -60,8 +60,11 @@ def flatten_cmd(db: Path, split: bool) -> None:
 @click.option("--backend", default="web", show_default=True,
               help="roadstyle backend: web | folium | lonboard.")
 @click.option("--report", is_flag=True,
-              help="Inspection map: every Overture field in a click-to-open side panel.")
-def viz_cmd(db: Path, output: Path | None, palette: str, backend: str, report: bool) -> None:
+              help="Inspection map: flat, resolved fields in a click-to-open side panel.")
+@click.option("--raw", is_flag=True,
+              help="With --report, also append the untouched nested columns as JSON.")
+def viz_cmd(db: Path, output: Path | None, palette: str, backend: str,
+            report: bool, raw: bool) -> None:
     """Render an extract's road network to a self-contained HTML map.
 
     Overture's `class` values are OSM-derived, so roadstyle styles them with no palette changes —
@@ -74,7 +77,7 @@ def viz_cmd(db: Path, output: Path | None, palette: str, backend: str, report: b
     out = output or default_output(db)
     if report and output is None:
         out = out.with_name(f"{out.stem}_report.html")
-    render(db, out, palette=palette, backend=backend, report=report)
+    render(db, out, palette=palette, backend=backend, report=report, raw=raw)
 
 
 @cli.command("types")

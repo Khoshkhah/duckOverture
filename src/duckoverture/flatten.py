@@ -57,6 +57,21 @@ def _dominant(col: str) -> str:
             f"ELSE x.between[2] - x.between[1] END, 'v': x}}), 'DESC')[1].v")
 
 
+def _flag_coverage(flag: str) -> str:
+    """Fraction of the segment on which `flag` is set, summing every range that carries it.
+
+    Flags cannot be read with `list_contains(...)` over the whole column: that answers "does this
+    appear anywhere", so Söderledstunneln — a 1,470 m tunnel ending in a 106 m bridge — came back
+    is_bridge AND is_tunnel, which is incoherent and feeds contradictory inputs into roadstyle's
+    grade-separation sandwich. Summing coverage lets the flags be resolved by dominance, the same
+    rule the other ranged columns use.
+    """
+    return (f"coalesce(list_sum(list_transform(list_filter(road_flags, "
+            f"x -> list_contains(x.values, '{flag}')), "
+            f"x -> CASE WHEN x.between IS NULL THEN 1.0 "
+            f"ELSE x.between[2] - x.between[1] END)), 0.0)")
+
+
 def _breakpoints() -> str:
     parts = ", ".join(
         f"coalesce(flatten(list_transform({c}, x -> coalesce(x.between, []))), [])"
@@ -123,9 +138,12 @@ SELECT
     CASE {_dominant('speed_limits')}.max_speed.unit
          WHEN 'mph' THEN round({_dominant('speed_limits')}.max_speed.value * 1.609344)
          ELSE {_dominant('speed_limits')}.max_speed.value END::INTEGER AS maxspeed_kmh,
-    list_contains(flatten(list_transform(road_flags, x -> x.values)), 'is_bridge') AS is_bridge,
-    list_contains(flatten(list_transform(road_flags, x -> x.values)), 'is_tunnel') AS is_tunnel,
-    list_contains(flatten(list_transform(road_flags, x -> x.values)), 'is_link')   AS is_link,
+    -- resolved by dominance: a flag wins only if it covers more of the segment than its rival
+    ({_flag_coverage('is_bridge')} > 0.5
+     AND {_flag_coverage('is_bridge')} >= {_flag_coverage('is_tunnel')})  AS is_bridge,
+    ({_flag_coverage('is_tunnel')} > 0.5
+     AND {_flag_coverage('is_tunnel')} >  {_flag_coverage('is_bridge')})  AS is_tunnel,
+    ({_flag_coverage('is_link')} > 0.5)                                   AS is_link,
     len(list_filter(access_restrictions,
         x -> x.access_type = 'denied' AND x."when".heading IS NOT NULL
              AND (x."when".mode IS NULL OR list_has_any(x."when".mode, {_MOTOR_SQL})))) > 0

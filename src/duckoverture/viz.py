@@ -66,51 +66,55 @@ WHERE subtype = 'road'
 """
 
 
-def _report_select(con) -> str:
-    """Every `transportation.segment` column, with nested ones rendered as readable JSON.
+def _report_select(con, raw: bool = False) -> str:
+    """Columns for the click-to-inspect panel.
 
-    The side panel shows raw values, and a Python ``dict``/``list`` repr of Overture's structs is
-    unreadable. ``to_json`` turns each into text the panel can display verbatim. Nested columns are
-    detected from the live schema rather than hardcoded, so anything Overture adds still appears.
+    Flat by default: every field a scalar the panel can print, taken from ``flat.segment`` where
+    each ranged attribute is already resolved from its dominant rule. Overture's nested columns are
+    *summarised* — a count, or the values joined — rather than dumped as JSON, because a wall of
+    ``[{"connector_id":"a0c1c021-…"}]`` is not a report.
+
+    ``raw=True`` appends the untouched nested columns as JSON for when the evidence behind a
+    resolved value is what you are after.
     """
-    cols = con.execute("DESCRIBE transportation.segment").fetchall()
-    parts = []
-    for name, dtype, *_ in cols:
-        if name == "geometry":
-            continue
-        nested = "STRUCT" in dtype.upper() or dtype.endswith("[]") or "MAP(" in dtype.upper()
-        q = f'"{name}"'
-        parts.append(f"to_json({q})::VARCHAR AS {q}" if nested else f"{q}")
-    # Resolved values come from flat.segment when it exists, so the panel and the styling agree
-    # and both use the DOMINANT rule. Without it the panel would show `[1]` values that contradict
-    # the map — worse than not showing them.
-    if _has_flat(con):
-        parts += [
-            "f.highway", "f.name", "f.maxspeed_kmh", "f.oneway", "f.surface", "f.width_m",
-            "f.length_m", "f.level AS layer",
-            "CASE WHEN f.is_bridge THEN 'yes' END AS bridge",
-            "CASE WHEN f.is_tunnel THEN 'yes' END AS tunnel",
-            "ST_AsWKB(CASE WHEN f.direction = 'backward' THEN ST_Reverse(s.geometry)"
-            " ELSE s.geometry END) AS wkb",
-        ]
-        sel = ", ".join(p if p.startswith(("f.", "to_json", "CASE", "ST_As")) else f"s.{p}"
-                        for p in parts)
-        return (f"SELECT {sel} FROM transportation.segment s "
-                f"JOIN flat.segment f ON f.segment_id = s.id WHERE s.subtype = 'road'")
-    parts += [
-        'class AS highway',
-        'names.primary AS name',
-        "CASE WHEN list_contains(flatten(list_transform(road_flags, x -> x.values)), 'is_bridge')"
-        " THEN 'yes' END AS bridge",
-        "CASE WHEN list_contains(flatten(list_transform(road_flags, x -> x.values)), 'is_tunnel')"
-        " THEN 'yes' END AS tunnel",
-        "CAST(level_rules[1].value AS VARCHAR) AS layer",
-        "speed_limits[1].max_speed.value AS maxspeed_kmh",
-        f"{ONEWAY_EXPR} AS oneway",
-        f"ST_AsWKB({GEOM_EXPR}) AS wkb",
+    if not _has_flat(con):
+        raise SystemExit("report needs flat.segment — run `duckoverture flatten <db>` first")
+
+    parts = [
+        # identity
+        "f.segment_id", "f.piece_id",
+        # what roadstyle styles by
+        "f.highway", "f.subclass", "f.name",
+        # resolved scalars
+        "f.maxspeed_kmh", "f.oneway", "f.direction", "f.surface", "f.width_m",
+        "round(f.length_m, 1) AS length_m", "f.level AS layer",
+        "CASE WHEN f.is_bridge THEN 'yes' END AS bridge",
+        "CASE WHEN f.is_tunnel THEN 'yes' END AS tunnel",
+        "f.is_link",
+        # nested columns, summarised to one readable value each
+        "len(s.connectors) AS n_connectors",
+        "len(s.prohibited_transitions) AS n_turn_restrictions",
+        "list_aggregate(list_transform(s.speed_limits, x -> x.max_speed.value::VARCHAR),"
+        " 'string_agg', ' / ') AS all_speed_limits",
+        "list_aggregate(list_transform(s.access_restrictions, x -> x.access_type"
+        " || coalesce(' ' || x.\"when\".heading, '')), 'string_agg', ' / ') AS access",
+        "list_aggregate(flatten(list_transform(s.road_flags, x -> x.values)),"
+        " 'string_agg', ' / ') AS flags",
+        "list_aggregate(list_transform(s.routes, x -> x.\"ref\"), 'string_agg', ' / ') AS routes",
+        "s.sources[1].dataset AS source_dataset",
+        "s.\"version\" AS overture_version",
     ]
+    if raw:
+        for name, dtype, *_ in con.execute("DESCRIBE transportation.segment").fetchall():
+            if name == "geometry":
+                continue
+            nested = "STRUCT" in dtype.upper() or dtype.endswith("[]") or "MAP(" in dtype.upper()
+            if nested:
+                parts.append(f'to_json(s."{name}")::VARCHAR AS raw_{name}')
+    parts.append("ST_AsWKB(CASE WHEN f.direction = 'backward' THEN ST_Reverse(s.geometry)"
+                 " ELSE s.geometry END) AS wkb")
     return ("SELECT " + ", ".join(parts) +
-            " FROM transportation.segment WHERE subtype = 'road'")
+            " FROM flat.segment f JOIN transportation.segment s ON s.id = f.segment_id")
 
 
 def default_output(db: str | Path) -> Path:
@@ -144,7 +148,7 @@ def _has_flat(con) -> bool:
         "WHERE schema_name='flat' AND table_name='segment'").fetchone()[0])
 
 
-def load_roads(db: str | Path, report: bool = False):
+def load_roads(db: str | Path, report: bool = False, raw: bool = False):
     """Overture road segments as a GeoDataFrame with roadstyle-shaped columns.
 
     ``report=True`` keeps **every** Overture column as well, nested ones as JSON text, for the
@@ -156,7 +160,7 @@ def load_roads(db: str | Path, report: bool = False):
     con.execute("INSTALL spatial; LOAD spatial;")
     flat = not report and _has_flat(con)
     try:
-        df = con.execute(_report_select(con) if report
+        df = con.execute(_report_select(con, raw) if report
                          else FLAT_SQL if flat else SEGMENT_SQL).df()
     except duckdb.CatalogException as e:
         raise SystemExit(
@@ -170,7 +174,8 @@ def load_roads(db: str | Path, report: bool = False):
 
 
 def render(db: str | Path, out: str | Path, palette: str = "highsat",
-           backend: str = "web", report: bool = False, log=print) -> Path:
+           backend: str = "web", report: bool = False, raw: bool = False,
+           log=print) -> Path:
     """Render the road network of an extract to a self-contained HTML map.
 
     ``report=True`` produces the **inspection** version: every Overture column travels with the
@@ -182,7 +187,7 @@ def render(db: str | Path, out: str | Path, palette: str = "highsat",
     except ImportError as e:                                    # pragma: no cover
         raise SystemExit('viz needs roadstyle: pip install "duckoverture[viz]"') from e
 
-    g = load_roads(db, report=report)
+    g = load_roads(db, report=report, raw=raw)
     if not report:
         import duckdb as _d
         _c = _d.connect(str(db), read_only=True)

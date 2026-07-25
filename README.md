@@ -160,20 +160,28 @@ duckoverture viz data/sodermalm.duckdb --report
 wrote viz/sodermalm_report.html
 ```
 
-Every Overture column travels with the map, and clicking a road docks a **side panel** listing all
-of them (roadstyle `road_popup="all"` + `popup_mode="panel"`).
-
-Nested columns are rendered as **JSON text** so they stay readable in the panel — a Python struct
-repr is not:
+Clicking a road docks a **side panel** of 23 fields — **every one a scalar**:
 
 ```
-connectors             [{"connector_id":"a0c1c021-...","at":0.0}, ...]
-access_restrictions    [{"access_type":"denied","when":{"heading":"backward", ...}}]
-prohibited_transitions [{"sequence":[{"connector_id":"3d55ab80-...", ...}]}]
+segment_id           9ca6940d-4e06-43e0-bcdd-b8968b8b2fc4
+highway              secondary          name       Stadsgårdsleden
+maxspeed_kmh         30                 oneway     True
+surface              paved              length_m   1693.5
+layer                -1                 tunnel     yes
+n_connectors         5                  routes     222
+all_speed_limits     30                 flags      is_tunnel
+access               denied / denied / denied backward
+source_dataset       OpenStreetMap      overture_version  5
 ```
 
-Which columns are nested is read from the **live schema**, not hardcoded — anything Overture adds
-to the format shows up in the panel automatically.
+Values come from `flat.segment`, so the panel and the styling agree — both use the dominant rule.
+Overture's nested columns are **summarised** rather than dumped: `connectors` → a count,
+`speed_limits` → the values joined (`"40 / 60"`), `road_flags` → the flag names. A wall of
+`[{"connector_id":"a0c1c021-…"}]` is not a report.
+
+`--report` requires `duckoverture flatten` first; without it the panel would show `[1]`-derived
+values that contradict the map. Add `--raw` to append the untouched nested columns as JSON when
+the evidence behind a resolved value is what you want.
 
 Needs the extra: `pip install "duckoverture[viz]"`.
 

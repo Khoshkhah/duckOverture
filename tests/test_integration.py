@@ -84,59 +84,59 @@ def test_viz_renders(built, tmp_path):
     assert html.exists() and html.stat().st_size > 10_000
 
 
-def test_report_mode_carries_every_field(built, tmp_path):
-    """--report must keep ALL Overture columns, with nested ones readable as JSON."""
+def test_report_mode_is_flat(built, tmp_path):
+    """--report must be FLAT: every panel field a scalar, no JSON dumps."""
     pytest.importorskip("roadstyle")
-    import json as _json
+    from duckoverture import flatten
     from duckoverture.viz import load_roads, render
     out, _ = built
-    plain = load_roads(out)
-    full = load_roads(out, report=True)
-    assert len(full.columns) > len(plain.columns), "report mode added no fields"
-    # the raw Overture columns must be present alongside the roadstyle-shaped ones
-    for c in ("id", "connectors", "speed_limits", "access_restrictions", "sources"):
-        assert c in full.columns
-    for c in ("highway", "bridge", "tunnel", "layer", "maxspeed_kmh"):
-        assert c in full.columns
-    # nested ones must be JSON TEXT, not python reprs — the panel shows values verbatim
-    s = full.loc[full.connectors.notna(), "connectors"].iloc[0]
-    assert isinstance(s, str) and _json.loads(s), "connectors is not readable JSON"
+    flatten(out, log=lambda *a: None)          # report requires flat.segment
+    g = load_roads(out, report=True)
+
+    assert len(g) > 0
+    for c in ("highway", "bridge", "tunnel", "layer", "maxspeed_kmh", "oneway", "geometry"):
+        assert c in g.columns, f"{c} missing — roadstyle will not style this"
+    # nested columns must be summarised, not dumped
+    for c in ("n_connectors", "all_speed_limits", "access", "flags", "source_dataset"):
+        assert c in g.columns
+    for c in g.columns:
+        if c == "geometry":
+            continue
+        vals = g[c].dropna()
+        if not len(vals):
+            continue
+        bad = [v for v in vals.head(200) if isinstance(v, str) and v.lstrip()[:1] in "[{"]
+        assert not bad, f"{c} still contains JSON: {bad[0][:60]}"
     html = render(out, tmp_path / "r.html", report=True, log=lambda *a: None)
     assert html.exists() and html.stat().st_size > 10_000
 
 
-def test_oneway_is_derived_from_heading_denials(built):
-    """Overture has no `oneway` column — it must be read out of access_restrictions."""
-    import duckdb as _d
-    from duckoverture.viz import ONEWAY_EXPR, load_roads, _heading_denied
+def test_report_raw_appends_json_evidence(built):
+    """--raw is the opt-in evidence view: untouched nested columns as JSON."""
+    import json as _json
+    from duckoverture import flatten
+    from duckoverture.viz import load_roads
     out, _ = built
-    g = load_roads(out)
-    assert "oneway" in g.columns
-    assert g.oneway.dtype == bool or set(g.oneway.dropna().unique()) <= {True, False}
+    flatten(out, log=lambda *a: None)
+    flat = load_roads(out, report=True)
+    raw = load_roads(out, report=True, raw=True)
+    assert len(raw.columns) > len(flat.columns)
+    assert "raw_connectors" in raw.columns
+    s = raw.loc[raw.raw_connectors.notna(), "raw_connectors"].iloc[0]
+    assert isinstance(s, str) and _json.loads(s)
 
-    con = _d.connect(str(out), read_only=True)
-    con.execute("LOAD spatial;")
-    # a mode-scoped foot/bicycle denial must NOT count as a one-way street
-    bad = con.execute(f"""
-        SELECT count(*) FROM transportation.segment
-        WHERE subtype='road' AND {ONEWAY_EXPR}
-          AND NOT EXISTS (SELECT 1 FROM unnest(access_restrictions) t(a)
-                          WHERE a.access_type='denied' AND a."when".heading IS NOT NULL
-                            AND (a."when".mode IS NULL
-                                 OR list_has_any(a."when".mode,
-                                    ['motor_vehicle','car','truck','hgv','bus','motorcycle','taxi','hov'])))
-    """).fetchone()[0]
-    assert bad == 0, "oneway derived from a non-motor restriction"
-    # forward-denied segments must come back reversed, or roadstyle's chevrons point wrong
-    n_rev = con.execute(f"""SELECT count(*) FROM transportation.segment WHERE subtype='road'
-                            AND {_heading_denied('forward')} AND NOT {_heading_denied('backward')}
-                         """).fetchone()[0]
-    if n_rev:
-        a, b = con.execute(f"""SELECT ST_AsText(ST_StartPoint(geometry)),
-                                      ST_AsText(ST_StartPoint(ST_Reverse(geometry)))
-                               FROM transportation.segment WHERE subtype='road'
-                                 AND {_heading_denied('forward')} LIMIT 1""").fetchone()
-        assert a != b
+
+def test_report_requires_flatten(built, tmp_path):
+    """Without flat.segment the report would show `[1]` values contradicting the map — refuse."""
+    import shutil
+    import duckdb as _d
+    from duckoverture.viz import load_roads
+    out, _ = built
+    copy = tmp_path / "noflat.duckdb"
+    shutil.copy(out, copy)
+    con = _d.connect(str(copy)); con.execute("DROP SCHEMA IF EXISTS flat CASCADE"); con.close()
+    with pytest.raises(SystemExit, match="flatten"):
+        load_roads(copy, report=True)
 
 
 ATTRS = ["highway", "subclass", "name", "level", "surface", "width_m", "maxspeed_kmh",
@@ -201,3 +201,25 @@ def test_dominant_rule_beats_first_rule(built):
               SELECT x.max_speed.value FROM unnest(s.speed_limits) t(x)
               ORDER BY coalesce(x.between[2] - x.between[1], 1.0) DESC LIMIT 1)""")[0]
     assert bad == 0, "maxspeed_kmh did not come from the dominant rule"
+
+
+def test_flags_resolved_by_dominance_not_presence(built):
+    """A flag must win on coverage, not on appearing anywhere.
+
+    Söderledstunneln is a 1,470 m tunnel that ends as a 106 m bridge. Reading road_flags with
+    list_contains over the whole column returns is_bridge AND is_tunnel — incoherent, and it feeds
+    contradictory inputs into roadstyle's grade-separation sandwich.
+    """
+    from duckoverture import flatten
+    out, _ = built
+    flatten(out, log=lambda *a: None)
+    # nothing may be both
+    assert _q(out, "SELECT count(*) FROM flat.segment WHERE is_bridge AND is_tunnel")[0] == 0
+    # and a flag covering <50% must not be set
+    bad = _q(out, """
+        SELECT count(*) FROM transportation.segment s JOIN flat.segment f ON f.segment_id = s.id
+        WHERE s.subtype = 'road' AND f.is_bridge
+          AND coalesce((SELECT sum(coalesce(x.between[2] - x.between[1], 1.0))
+                        FROM unnest(s.road_flags) t(x)
+                        WHERE list_contains(x.values, 'is_bridge')), 0) <= 0.5""")[0]
+    assert bad == 0, "is_bridge set on a segment where it covers half or less"
