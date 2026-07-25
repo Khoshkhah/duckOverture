@@ -49,8 +49,9 @@ def flatten_cmd(db: Path, mode: str) -> None:
     covering most of the segment.
 
     -m edges additionally cuts at every connector, giving edges with exactly two junctions and
-    from_connector_id / to_connector_id — the routable form. Total length is conserved in all
-    modes.
+    from_connector_id / to_connector_id — the routable form. It also builds flat.turn_restriction,
+    renumbering Overture's prohibited_transitions onto the split pieces at both ends. Total length
+    is conserved in all modes.
     """
     from .flatten import flatten
     flatten(db, mode=mode)

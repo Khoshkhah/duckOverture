@@ -327,3 +327,49 @@ def test_edges_have_no_degenerate_pieces(built):
         JOIN transportation.connector c ON c.id = k.connector_id
         WHERE k.at > f.start_lr + 1e-6 AND k.at < f.end_lr - 1e-6""")[0]
     assert inside == 0, f"{inside} edges swallowed a known junction"
+
+
+def test_turn_restrictions_renumber_onto_pieces(built):
+    """Both ends of a turn restriction must land on pieces that actually touch the junction.
+
+    A restriction says "from segment A, via connector c, you may not enter segment B". Splitting
+    breaks both halves: it belongs to one piece of A, and B is now several pieces of which exactly
+    one is the manoeuvre. Unresolved, a router bans miles of road or bans nothing.
+    """
+    from duckoverture import flatten
+    out, _ = built
+    flatten(out, mode="edges", log=lambda *a: None)
+
+    # the owner piece must touch the first junction of the sequence
+    assert _q(out, """
+        SELECT count(*) FROM flat.turn_restriction t
+        JOIN flat.segment f ON f.piece_id = t.from_piece_id
+        WHERE t.seq_no = 1
+          AND t.via_connector_id NOT IN (f.from_connector_id, f.to_connector_id)""")[0] == 0
+
+    # and so must every referenced piece
+    assert _q(out, """
+        SELECT count(*) FROM flat.turn_restriction t
+        JOIN flat.segment f ON f.piece_id = t.to_piece_id
+        WHERE t.via_connector_id NOT IN (f.from_connector_id, f.to_connector_id)""")[0] == 0
+
+    # exactly one piece per step, or the renumbering is ambiguous
+    assert _q(out, """
+        SELECT count(*) FROM (SELECT 1 FROM flat.turn_restriction
+                              GROUP BY from_piece_id, tr_no, seq_no
+                              HAVING count(DISTINCT to_piece_id) > 1)""")[0] == 0
+
+    # no half-resolved chains: a partial sequence is a guess, not a restriction
+    assert _q(out, """
+        SELECT count(*) FROM (
+            SELECT from_piece_id, tr_no, count(*) n, max(seq_no) hi
+            FROM flat.turn_restriction GROUP BY 1, 2 HAVING n <> hi)""")[0] == 0
+
+
+def test_turn_restrictions_are_edges_mode_only(built):
+    """Junction ids are what a restriction hangs off, so it means nothing without them."""
+    from duckoverture import flatten
+    out, _ = built
+    flatten(out, mode="attrs", log=lambda *a: None)
+    assert "flat.turn_restriction" not in flatten(out, mode="attrs", log=lambda *a: None)
+    assert "flat.turn_restriction" in flatten(out, mode="edges", log=lambda *a: None)

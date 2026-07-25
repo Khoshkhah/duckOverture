@@ -274,6 +274,68 @@ GROUP BY segment_id, run_no
 """.replace("FROM runs_src", "FROM marked")
 
 
+# A turn restriction says "from THIS segment, via connector c, you may not enter segment b".
+# Splitting invalidates both ends of that sentence: the restriction belongs to only ONE piece of
+# this segment (the one that actually touches c), and `b` is now several pieces of which exactly
+# one is the manoeuvre. Left unresolved, a router either applies the ban to the whole road — miles
+# of it — or cannot apply it at all. This renumbers both ends onto pieces.
+#
+# Mirrors get_trs() + resolve_tr_references() in OvertureMaps/transportation-splitter.
+_TURN_SQL = """
+WITH tr AS (
+    SELECT s.id AS from_segment_id, t.i AS tr_no,
+           s.prohibited_transitions[t.i].sequence       AS seq,
+           s.prohibited_transitions[t.i].final_heading  AS final_heading,
+           s.prohibited_transitions[t.i]."when".heading AS when_heading,
+           s.prohibited_transitions[t.i]."when".during  AS during,
+           s.prohibited_transitions[t.i]."when"."mode"  AS mode
+    FROM transportation.segment s,
+         UNNEST(range(1, len(s.prohibited_transitions) + 1)) t(i)
+    WHERE s.subtype = 'road' AND len(s.prohibited_transitions[t.i].sequence) > 0
+),
+-- Which piece owns the restriction? The one whose END is the first junction of the sequence if
+-- the ban applies to forward travel, whose START is if backward. An unscoped ban takes either.
+owner AS (
+    SELECT f.piece_id AS from_piece_id, tr.*
+    FROM tr JOIN flat.segment f ON f.segment_id = tr.from_segment_id
+    WHERE CASE tr.when_heading
+            WHEN 'forward'  THEN f.to_connector_id   = tr.seq[1].connector_id
+            WHEN 'backward' THEN f.from_connector_id = tr.seq[1].connector_id
+            ELSE tr.seq[1].connector_id IN (f.from_connector_id, f.to_connector_id) END
+),
+steps AS (
+    SELECT o.*, u.i AS seq_no,
+           o.seq[u.i].connector_id AS via_connector_id,
+           o.seq[u.i].segment_id   AS to_segment_id,
+           CASE WHEN u.i < len(o.seq) THEN o.seq[u.i + 1].connector_id END AS next_connector_id
+    FROM owner o, UNNEST(range(1, len(o.seq) + 1)) u(i)
+),
+-- The referenced piece must span BOTH junctions of this step — enter at one, leave at the other.
+-- On the last step there is no next junction, so direction of travel picks the end instead.
+resolved AS (
+    SELECT st.*, f.piece_id AS to_piece_id
+    FROM steps st JOIN flat.segment f ON f.segment_id = st.to_segment_id
+    WHERE CASE WHEN st.next_connector_id IS NULL
+               THEN CASE st.final_heading
+                      WHEN 'forward' THEN f.from_connector_id = st.via_connector_id
+                      ELSE                f.to_connector_id   = st.via_connector_id END
+               ELSE st.via_connector_id  IN (f.from_connector_id, f.to_connector_id)
+                AND st.next_connector_id IN (f.from_connector_id, f.to_connector_id) END
+),
+-- A partly-resolved chain is not a restriction, it is a guess. Overture's splitter drops these
+-- too; on a clipped extract most of them are manoeuvres leaving the boundary.
+complete AS (
+    SELECT from_piece_id, tr_no FROM resolved
+    GROUP BY 1, 2 HAVING count(DISTINCT seq_no) = any_value(len(seq))
+)
+SELECT r.from_piece_id, r.from_segment_id, r.tr_no, r.seq_no,
+       r.via_connector_id, r.to_piece_id, r.to_segment_id,
+       r.final_heading, r.when_heading, r.during, r.mode
+FROM resolved r JOIN complete c USING (from_piece_id, tr_no)
+ORDER BY r.from_piece_id, r.tr_no, r.seq_no
+"""
+
+
 MODES = ("segment", "attrs", "edges")
 
 
@@ -312,6 +374,23 @@ def flatten(db: str | Path, mode: str = "segment", log=print) -> dict[str, int]:
             "edges": "split at junctions + attribute changes (routable)"}[mode]
     log(f"  flat.segment  {src:,} segments -> {n:,} rows [{desc}]  "
         f"{time.perf_counter()-t0:.1f}s")
+
+    # Turn restrictions reference whole segments, so they only mean anything once the pieces have
+    # junctions to hang off — i.e. in edges mode.
+    if mode == "edges":
+        t0 = time.perf_counter()
+        con.execute(f"CREATE OR REPLACE TABLE flat.turn_restriction AS {_TURN_SQL}")
+        rows, kept = con.execute(
+            """SELECT count(*), count(DISTINCT (from_piece_id, tr_no))
+               FROM flat.turn_restriction""").fetchone()
+        src_tr = con.execute(
+            """SELECT count(*) FROM transportation.segment s,
+               UNNEST(s.prohibited_transitions) t(x) WHERE s.subtype='road'""").fetchone()[0]
+        stats["flat.turn_restriction"] = rows
+        log(f"  flat.turn_restriction  {src_tr} transitions -> {kept} renumbered onto pieces "
+            f"({rows} steps)  {time.perf_counter()-t0:.1f}s")
+        if kept < src_tr:
+            log(f"  {src_tr - kept} dropped: sequence leaves the extract or the piece is unsplit")
 
     # length conservation is the invariant that says the split was clean
     a, b = con.execute("""SELECT (SELECT sum(length_m) FROM flat.segment),

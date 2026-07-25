@@ -261,8 +261,43 @@ Three things had to match to get there, and each was a real bug on our side:
 - **`edges` is deliberately unmerged.** Adjacent pieces with identical attributes stay separate
   rows, which is what makes the comparison row-for-row. Use `-m attrs` if you want them merged.
 
-Not matched: `prohibited_transitions` sequences still reference pre-split segment ids. The official
-splitter renumbers them. That is the remaining correctness gap for routing.
+### Turn restrictions get renumbered too
+
+A turn restriction reads *"from segment A, via connector c, you may not enter segment B"*.
+Splitting breaks **both** halves of that sentence: it belongs to only one piece of A — the one
+that touches `c` — and B is now several pieces, of which exactly one is the manoeuvre. Leave it
+unresolved and a router either bans the whole road, hundreds of metres of it, or cannot apply the
+ban at all.
+
+`-m edges` renumbers both ends into `flat.turn_restriction`:
+
+```
+  flat.turn_restriction  54 transitions -> 54 renumbered onto pieces (58 steps)  0.0s
+```
+
+```
+from_piece_id     1227298b-…-d26b0a59a403#5     -- the edge you are on
+tr_no  seq_no     2  1                          -- 2-step (via-way) restriction, first step
+via_connector_id  ef18293a-…-d5853615801a       -- the junction crossed
+to_piece_id       aabe0b25-…-ffd69e2d1e9f#1     -- the edge banned  ← renumbered
+to_segment_id     aabe0b25-…-ffd69e2d1e9f       -- what Overture said, kept for traceability
+final_heading · when_heading · during · mode
+```
+
+One row per step, so the common case is `seq_no = 1` and via-way restrictions carry the whole
+chain. `during` and `mode` travel with it — a restriction that only applies at rush hour must not
+read as absolute.
+
+Against the official splitter: **58 steps vs 58, an exact multiset match** — same owner piece,
+same junction, same referenced piece, on every one. 26 of the 46 referenced segments are split
+into pieces (one into 15), so this is doing real work rather than passing ids through.
+
+Two restrictions resolve to `to_piece_id = from_piece_id`. Those are **U-turn bans** — reverse at
+the junction you arrived from — not a bug.
+
+Chains that only partly resolve are **dropped**, as the official splitter drops them; on a clipped
+extract those are manoeuvres leaving the boundary. A partly-resolved chain is a guess, not a
+restriction.
 
 ## Known limits of the source data
 
@@ -326,7 +361,7 @@ DUCKOVERTURE_NETWORK_TESTS=1 pytest tests/           # + live S3 extraction
 ## Status
 
 v0.2.0 — raw extraction, flattening and rendering all work. `-m edges` matches Overture's own
-splitter exactly on Södermalm.
+splitter exactly on Södermalm, geometry and turn restrictions both.
 
-Next: renumber `prohibited_transitions` onto split pieces, and a `flat.connector` node table, so
-the extract can feed a router directly.
+Next: a `flat.connector` node table, so the extract can feed a router directly. Note the
+[roundabout caveat](#roundabouts-lose-their-one-way-) before routing on this.
