@@ -98,9 +98,11 @@ def _report_select(con, raw: bool = False) -> str:
         "list_aggregate(list_transform(s.speed_limits, x -> x.max_speed.value::VARCHAR),"
         " 'string_agg', ' / ') AS all_speed_limits",
         "list_aggregate(list_transform(s.access_restrictions, x -> x.access_type"
-        " || coalesce(' ' || x.\"when\".heading, '')), 'string_agg', ' / ') AS access",
-        "list_aggregate(flatten(list_transform(s.road_flags, x -> x.values)),"
-        " 'string_agg', ' / ') AS flags",
+        " || coalesce(' ' || x.\"when\".heading, '')), 'string_agg', ' / ') AS all_access",
+        "list_aggregate(flatten(list_transform(list_filter(s.road_flags,"
+        "     x -> x.between IS NULL OR (x.between[1] <= (f.start_lr + f.end_lr) / 2"
+        "                            AND x.between[2] >= (f.start_lr + f.end_lr) / 2)),"
+        "     x -> x.values)), 'string_agg', ' / ') AS flags",
         "list_aggregate(list_transform(s.routes, x -> x.\"ref\"), 'string_agg', ' / ') AS routes",
         "s.sources[1].dataset AS source_dataset",
         "s.\"version\" AS overture_version",

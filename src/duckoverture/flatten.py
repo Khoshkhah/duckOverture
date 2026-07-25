@@ -226,10 +226,10 @@ SELECT
          WHEN 'mph' THEN round({_at_mid('speed_limits')}[1].max_speed.value * 1.609344)
          ELSE {_at_mid('speed_limits')}[1].max_speed.value END::INTEGER AS maxspeed_kmh,
     -- flags that apply to THIS piece, not to the segment as a whole
-    list_contains(flatten(list_transform({_at_mid('road_flags')}, x -> x.values)),
-                  'is_bridge')                  AS is_bridge,
-    list_contains(flatten(list_transform({_at_mid('road_flags')}, x -> x.values)),
-                  'is_tunnel')                  AS is_tunnel,
+    coalesce(list_contains(flatten(list_transform({_at_mid('road_flags')}, x -> x.values)),
+                  'is_bridge'), FALSE)          AS is_bridge,
+    coalesce(list_contains(flatten(list_transform({_at_mid('road_flags')}, x -> x.values)),
+                  'is_tunnel'), FALSE)          AS is_tunnel,
     list_contains(flatten(list_transform({_at_mid('road_flags')}, x -> x.values)),
                   'is_link')                    AS is_link,
     -- one-way = a heading-scoped denial for motor traffic covering this piece
