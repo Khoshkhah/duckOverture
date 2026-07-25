@@ -35,6 +35,24 @@ def build_cmd(boundary: Path, output: Path, release: str, types, clip: bool) -> 
     build(boundary, output, release=release, types=list(types) or None, clip=clip)
 
 
+@cli.command("viz")
+@click.argument("db", type=click.Path(exists=True, path_type=Path))
+@click.option("-o", "--output", type=click.Path(path_type=Path), default=None,
+              help="Output HTML (default: <db stem>.html next to the db).")
+@click.option("-p", "--palette", default="highsat", show_default=True,
+              help="roadstyle palette: highsat | carto | mono.")
+@click.option("--backend", default="web", show_default=True,
+              help="roadstyle backend: web | folium | lonboard.")
+def viz_cmd(db: Path, output: Path | None, palette: str, backend: str) -> None:
+    """Render an extract's road network to a self-contained HTML map.
+
+    Overture's `class` values are OSM-derived, so roadstyle styles them with no palette changes —
+    bridge / tunnel / layer are unpacked from `road_flags` and `level_rules`.
+    """
+    from .viz import render
+    render(db, output or db.with_suffix(".html"), palette=palette, backend=backend)
+
+
 @cli.command("types")
 def types_cmd() -> None:
     """List the Overture themes and types this can extract."""

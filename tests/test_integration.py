@@ -66,3 +66,19 @@ def test_meta_records_provenance(built):
     con = duckdb.connect(str(out), read_only=True)
     rel, clipped = con.execute("SELECT release, clipped FROM _meta").fetchone()
     assert rel and clipped is True
+
+
+def test_viz_renders(built, tmp_path):
+    """The Overture -> roadstyle mapping must survive: a real HTML map, from real data."""
+    pytest.importorskip("roadstyle")
+    from duckoverture.viz import load_roads, render
+    out, _ = built
+    g = load_roads(out)
+    assert len(g) > 0
+    # the columns roadstyle reads must all be present after unpacking the nested ones
+    for c in ("highway", "bridge", "tunnel", "layer", "maxspeed_kmh", "geometry"):
+        assert c in g.columns, f"{c} missing — roadstyle will not style this"
+    # highway must carry Overture's class values, which roadstyle resolves directly
+    assert g.highway.notna().any()
+    html = render(out, tmp_path / "m.html", log=lambda *a: None)
+    assert html.exists() and html.stat().st_size > 10_000

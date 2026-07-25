@@ -106,13 +106,44 @@ from duckoverture import build
 build("boundary.geojson", "area.duckdb", types=["transportation"])
 ```
 
+## Visualise
+
+```bash
+duckoverture viz data/sodermalm.duckdb -o sodermalm.html
+```
+
+```
+4,203 road segments  |  bridges 84 · tunnels 243 · levelled 303 · speed limits 965
+wrote sodermalm.html
+```
+
+A self-contained [roadstyle](https://pypi.org/project/roadstyle/) map — one file, opens from disk.
+
+**roadstyle styles Overture with no palette changes.** Overture's `class` values are OSM-derived
+(`residential`, `footway`, `secondary`, …), so the mapping is a *rename*, not a translation table.
+The only work is unpacking three nested columns into the flat ones roadstyle reads for the
+grade-separation sandwich:
+
+| Overture | → | roadstyle |
+|---|---|---|
+| `road_flags` contains `is_bridge` / `is_tunnel` | → | `bridge` / `tunnel` |
+| `level_rules[1].value` | → | `layer` |
+| `speed_limits[1].max_speed.value` | → | `maxspeed_kmh` |
+
+Sub-range rules (`between`) collapse to the segment's first rule — roadstyle styles whole features,
+so a segment that is a bridge for part of its length is drawn as a bridge. Splitting at sub-range
+boundaries belongs in the flatten stage.
+
+Needs the extra: `pip install "duckoverture[viz]"`.
+
 ## Install
 
 ```bash
-pip install -e .
+pip install -e .            # core: duckdb + click only
+pip install -e ".[viz]"     # + roadstyle & geopandas for `duckoverture viz`
 ```
 
-Needs only `duckdb` and `click`. DuckDB's `spatial` and `httpfs` extensions are installed on first
+The core needs only `duckdb` and `click`. DuckDB's `spatial` and `httpfs` extensions are installed on first
 run.
 
 ## Tests
