@@ -81,7 +81,22 @@ def _report_select(con) -> str:
         nested = "STRUCT" in dtype.upper() or dtype.endswith("[]") or "MAP(" in dtype.upper()
         q = f'"{name}"'
         parts.append(f"to_json({q})::VARCHAR AS {q}" if nested else f"{q}")
-    # the flat columns roadstyle styles by — derived, so they must not collide with originals
+    # Resolved values come from flat.segment when it exists, so the panel and the styling agree
+    # and both use the DOMINANT rule. Without it the panel would show `[1]` values that contradict
+    # the map — worse than not showing them.
+    if _has_flat(con):
+        parts += [
+            "f.highway", "f.name", "f.maxspeed_kmh", "f.oneway", "f.surface", "f.width_m",
+            "f.length_m", "f.level AS layer",
+            "CASE WHEN f.is_bridge THEN 'yes' END AS bridge",
+            "CASE WHEN f.is_tunnel THEN 'yes' END AS tunnel",
+            "ST_AsWKB(CASE WHEN f.direction = 'backward' THEN ST_Reverse(s.geometry)"
+            " ELSE s.geometry END) AS wkb",
+        ]
+        sel = ", ".join(p if p.startswith(("f.", "to_json", "CASE", "ST_As")) else f"s.{p}"
+                        for p in parts)
+        return (f"SELECT {sel} FROM transportation.segment s "
+                f"JOIN flat.segment f ON f.segment_id = s.id WHERE s.subtype = 'road'")
     parts += [
         'class AS highway',
         'names.primary AS name',
