@@ -235,9 +235,9 @@ SELECT
     list_contains(flatten(list_transform({_at_mid('road_flags')}, x -> x.values)),
                   'is_link')                    AS is_link,
     -- one-way = a heading-scoped denial for motor traffic covering this piece
-    len(list_filter({_at_mid('access_restrictions')},
+    coalesce(len(list_filter({_at_mid('access_restrictions')},
         x -> x.access_type = 'denied' AND x."when".heading IS NOT NULL
-             AND (x."when".mode IS NULL OR list_has_any(x."when".mode, {_MOTOR_SQL})))) > 0
+             AND (x."when".mode IS NULL OR list_has_any(x."when".mode, {_MOTOR_SQL})))) > 0, FALSE)
              OR {_is_roundabout(_at_mid('sources'), have_rb)}
                                                 AS oneway,
     -- Overture drops junction=roundabout and the oneway it implies; recovered by way-id lookup.
@@ -278,9 +278,9 @@ SELECT
     ({_flag_coverage('is_tunnel')} > 0.5
      AND {_flag_coverage('is_tunnel')} >  {_flag_coverage('is_bridge')})  AS is_tunnel,
     ({_flag_coverage('is_link')} > 0.5)                                   AS is_link,
-    len(list_filter(access_restrictions,
+    coalesce(len(list_filter(access_restrictions,
         x -> x.access_type = 'denied' AND x."when".heading IS NOT NULL
-             AND (x."when".mode IS NULL OR list_has_any(x."when".mode, {_MOTOR_SQL})))) > 0
+             AND (x."when".mode IS NULL OR list_has_any(x."when".mode, {_MOTOR_SQL})))) > 0, FALSE)
              OR {_is_roundabout_dominant(have_rb)}
                                                 AS oneway,
     {_is_roundabout_dominant(have_rb)}          AS is_roundabout,
