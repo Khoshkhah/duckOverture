@@ -38,7 +38,7 @@ Measured on Nacka, joining Overture segments to their OSM source ways (see below
 | duckOSM (`junction='roundabout'`) | 210 | **210 (100%)** |
 | duckoverture `flat.segment`, same roads | 190 | **33 (17%)** |
 
-**4,322 m of roundabout comes out two-way.** A router on `flat.segment` sends vehicles the wrong
+**3,511 m of roundabout comes out two-way.** A router on `flat.segment` sends vehicles the wrong
 way round. This is the last known driving-correctness gap now that direction, turn restrictions
 and access closures are handled.
 
@@ -145,7 +145,7 @@ visible in the data rather than only in the README.
 
 ## Impact
 
-- Nacka: 190 edges / 4,322 m go from 17% one-way to 100%.
+- Nacka: 190 edges / 3,511 m go from 17% one-way to 100%.
 - Södermalm: **no change** — it has zero roundabouts. Any test of this needs Nacka or similar.
 - `edges`-mode row counts are unaffected: `oneway` is already in `_ATTRS`, so a segment that
   changes roundabout status mid-way would already have been cut there. Splitter parity with

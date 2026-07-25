@@ -155,10 +155,19 @@ def _q(out, sql, params=None):
 
 
 def _length_matches(out):
-    a, b = _q(out, """SELECT (SELECT sum(length_m) FROM flat.segment),
-                             (SELECT sum(ST_Length_Spheroid(geometry))
-                              FROM transportation.segment WHERE subtype='road')""")
-    return abs(a - b) / b < 1e-6
+    """flat.segment's total length vs an INDEPENDENT measurement of the raw geometry.
+
+    This used to measure the raw side with ST_Length_Spheroid — the same function flatten used —
+    so a consistent error cancelled and the check passed regardless. It did: DuckDB's spheroid
+    functions read (lat, lon) while Overture geometry is (lon, lat), and Sodermalm's road network
+    was reported as 448,588 m for months against a true 290,590 m. Projecting with geopandas is a
+    genuinely different code path, so it would have caught it.
+    """
+    import geopandas as gpd
+    a = _q(out, "SELECT sum(length_m) FROM flat.segment")[0]
+    wkb = _q_all(out, "SELECT ST_AsWKB(geometry) FROM transportation.segment WHERE subtype='road'")
+    b = gpd.GeoSeries.from_wkb([bytes(r[0]) for r in wkb], crs=4326).to_crs(3006).length.sum()
+    return abs(a - b) / b < 1e-3
 
 
 def test_flatten_default_is_one_row_per_segment(built):
@@ -470,3 +479,32 @@ def test_roundabout_forces_oneway_via_osm_way_id(built):
         WHERE is_roundabout AND segment_id <> ?""", [seg])[0] == 0
 
     _q_all(out, "DROP TABLE IF EXISTS osm.roundabout_way")
+
+
+def test_report_draws_piece_geometry_not_whole_segment(built):
+    """Each row must be drawn where it actually is, not over its parent segment's whole line.
+
+    The report joined flat.segment to transportation.segment and then emitted `s.geometry`, so in
+    the split modes every piece was drawn with the FULL segment line, stacked on top of each other.
+    Söderledstunneln rendered as a bridge end to end: its 107 m bridge piece painted the whole
+    1,576 m line over its own 1,469 m of tunnel.
+    """
+    from duckoverture import flatten
+    from duckoverture.viz import load_roads
+    out, _ = built
+    flatten(out, mode="edges", log=lambda *a: None)
+    g = load_roads(out, report=True)
+
+    multi = g[g.segment_id.duplicated(keep=False)]
+    assert len(multi) > 0, "need a split segment to test with"
+    # pieces of one segment must not share a geometry
+    for _, grp in multi.groupby("segment_id"):
+        if len(grp) > 1:
+            assert grp.geometry.apply(lambda x: x.wkb).nunique() == len(grp), \
+                "pieces of a segment share a geometry — whole-segment line leaked in"
+            break
+
+    # and the drawn line must be as long as the row claims
+    import geopandas as gpd
+    m = gpd.GeoSeries(g.geometry, crs=4326).to_crs(3006).length
+    assert (abs(m - g.length_m) < 1.0).mean() > 0.99, "drawn length disagrees with length_m"

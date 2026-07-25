@@ -43,6 +43,20 @@ RANGED = ["level_rules", "speed_limits", "access_restrictions", "road_flags",
 # lr_split_point_min_dist_meters in OvertureMaps/transportation-splitter.
 MIN_SPLIT_M = 0.01
 
+
+def _len(geom: str = "geometry") -> str:
+    """Geodesic length in metres.
+
+    ST_Length_Spheroid reads coordinates as (LAT, LON) — DuckDB's spheroid functions all do, and
+    Overture geometry is (lon, lat), so calling it directly overstated Södermalm's road network by
+    54% (448,588 m against a true 290,590 m). ST_FlipCoordinates puts them in the order it wants;
+    the result then agrees with a projected EPSG:3006 measurement to 8 m over 290 km.
+
+    The length-conservation check could never catch this: both sides of it used the same function,
+    so a consistent error cancelled exactly.
+    """
+    return f"ST_Length_Spheroid(ST_FlipCoordinates({geom}))"
+
 # modes whose access denial constitutes a one-way street (a foot/bicycle rule does not)
 _MOTOR_SQL = "['motor_vehicle','car','truck','hgv','bus','motorcycle','taxi','hov']" 
 
@@ -183,7 +197,7 @@ def _breakpoints(connectors: bool = False) -> str:
     # So SNAP each breakpoint onto a connector within MIN_SPLIT_M before de-duplicating. This is
     # what Overture's own lr_split_point_min_dist_meters does: "how far ... do these LRs need to be
     # for us to create a new connector for them instead of using the existing connector".
-    tol = f"({MIN_SPLIT_M} / ST_Length_Spheroid(geometry))"
+    tol = f"({MIN_SPLIT_M} / {_len()})"
     raw = f"list_concat([0.0, 1.0], {parts}, coalesce({ats}, []))"
     snapped = (f"list_transform({raw}, x -> coalesce("
                f"list_filter({ats}, a -> abs(a - x) <= {tol})[1], x))")
@@ -213,7 +227,7 @@ pieces AS (
 SELECT
     id                                          AS segment_id,
     piece_no, start_lr, end_lr, geometry, conns,
-    (end_lr - start_lr) * ST_Length_Spheroid(geometry) AS piece_m,
+    (end_lr - start_lr) * {_len()} AS piece_m,
     class                                       AS "class",
     -- from subclass_rules, NOT Overture's scalar `subclass`: that one is only set when
     -- the subclass covers the whole segment, so it is NULL on all 36 ranged segments.
@@ -295,7 +309,7 @@ SELECT
     {_motor_access('access_restrictions')}      AS motor_access,
     {_vehicle_limit('access_restrictions', 'height', 'm')}::DOUBLE AS max_height_m,
     {_vehicle_limit('access_restrictions', 'weight', 't')}::DOUBLE AS max_weight_t,
-    ST_Length_Spheroid(geometry)                AS length_m,
+    {_len()}                                    AS length_m,
     geometry                                    AS geometry
 FROM transportation.segment
 WHERE subtype = 'road'
@@ -369,7 +383,7 @@ SELECT
     coalesce({conn_at.format(lr='max(end_lr)')},
              segment_id || '@' || max(end_lr))   AS to_connector_id,
     {", ".join(f"any_value({c}) AS {c}" for c in _ATTRS)},
-    ST_Length_Spheroid(ST_LineSubstring(any_value(geometry), min(start_lr), max(end_lr)))
+    {_len('ST_LineSubstring(any_value(geometry), min(start_lr), max(end_lr))')}
                                                 AS length_m,
     ST_LineSubstring(any_value(geometry), min(start_lr), max(end_lr))
                                                 AS geometry
@@ -501,7 +515,7 @@ def flatten(db: str | Path, mode: str = "segment", log=print) -> dict[str, int]:
 
     # length conservation is the invariant that says the split was clean
     a, b = con.execute("""SELECT (SELECT sum(length_m) FROM flat.segment),
-                                 (SELECT sum(ST_Length_Spheroid(geometry))
+                                 (SELECT sum(ST_Length_Spheroid(ST_FlipCoordinates(geometry)))
                                   FROM transportation.segment WHERE subtype='road')""").fetchone()
     drift = abs(a - b) / b * 100 if b else 0.0
     log(f"  length {a:,.0f} m vs raw {b:,.0f} m  (drift {drift:.4f}%)")

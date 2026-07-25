@@ -123,8 +123,12 @@ def _report_select(con, raw: bool = False) -> str:
             nested = "STRUCT" in dtype.upper() or dtype.endswith("[]") or "MAP(" in dtype.upper()
             if nested:
                 parts.append(f'to_json(s."{name}")::VARCHAR AS raw_{name}')
-    parts.append("ST_AsWKB(CASE WHEN f.direction = 'backward' THEN ST_Reverse(s.geometry)"
-                 " ELSE s.geometry END) AS wkb")
+    # f.geometry, NOT s.geometry: in split modes a piece is a SUBSTRING of the segment, and
+    # drawing each piece with the whole segment's line stacks every piece on top of every other.
+    # Söderledstunneln then rendered as a bridge end to end, because its 107 m bridge piece
+    # (lvl +1) painted the full 1,576 m line over its own 1,469 m of tunnel.
+    parts.append("ST_AsWKB(CASE WHEN f.direction = 'backward' THEN ST_Reverse(f.geometry)"
+                 " ELSE f.geometry END) AS wkb")
     return ("SELECT " + ", ".join(parts) +
             " FROM flat.segment f JOIN transportation.segment s ON s.id = f.segment_id")
 

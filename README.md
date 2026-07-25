@@ -80,9 +80,14 @@ conversion is needed:
 
 ```sql
 LOAD spatial;
-SELECT round(sum(ST_Length_Spheroid(geometry)))
-FROM transportation.segment WHERE subtype = 'road';   -- 448,588 m
+SELECT round(sum(ST_Length_Spheroid(ST_FlipCoordinates(geometry))))
+FROM transportation.segment WHERE subtype = 'road';   -- 290,590 m
 ```
+
+**`ST_FlipCoordinates` is not optional.** DuckDB's spheroid functions read coordinates as
+**(lat, lon)**; Overture geometry is (lon, lat). Calling `ST_Length_Spheroid` directly overstates
+Södermalm's road network by 54% — 448,588 m against a true 290,590 m, which a projected EPSG:3006
+measurement independently confirms to within 8 m over 290 km.
 
 ## Usage
 
@@ -172,7 +177,7 @@ Clicking a road docks a **side panel** of 23 fields — **every one a scalar**:
 segment_id           9ca6940d-4e06-43e0-bcdd-b8968b8b2fc4
 class                secondary          name       Stadsgårdsleden
 maxspeed_kmh         30                 oneway     True
-surface              paved              length_m   1693.5
+surface              paved              length_m   1516.0
 layer                -1                 is_tunnel  true
 n_connectors         5                  routes     222
 all_speed_limits     30                 flags      is_tunnel
@@ -202,7 +207,7 @@ duckoverture flatten data/sodermalm.duckdb
 
 ```
   flat.segment  4,203 segments -> 4,203 rows [one row per segment (dominant rule)]  0.0s
-  length 448,588 m vs raw 448,588 m  (drift 0.0000%)
+  length 290,590 m vs raw 290,590 m  (drift 0.0000%)
 ```
 
 Overture attaches attributes to **ranges** along a segment instead of splitting the road:
@@ -370,7 +375,7 @@ the data cannot distinguish "known two-way" from "nobody said".
 ### Access is more than direction — now read
 
 `access_restrictions` carries closures and vehicle limits alongside the heading denials that make
-a road one-way. `flat.segment` used to mine it **only** for `oneway`, so 132 edges (7.7 km) that
+a road one-way. `flat.segment` used to mine it **only** for `oneway`, so 132 edges (4.9 km) that
 are flatly closed read as ordinary two-way streets. Three columns now carry the rest:
 
 | column | Södermalm (`-m edges`) |
