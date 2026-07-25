@@ -91,6 +91,8 @@ def _report_select(con, raw: bool = False) -> str:
         "CASE WHEN f.is_bridge THEN 'yes' END AS bridge",
         "CASE WHEN f.is_tunnel THEN 'yes' END AS tunnel",
         "f.is_link",
+        # resolved access — the raw `access` field below is the evidence behind it
+        "f.motor_access", "f.max_height_m", "f.max_weight_t",
         # nested columns, summarised to one readable value each
         "len(s.connectors) AS n_connectors",
         "len(s.prohibited_transitions) AS n_turn_restrictions",
@@ -135,7 +137,7 @@ FLAT_SQL = """
 SELECT piece_id, segment_id, highway, subclass, name, level AS layer,
        CASE WHEN is_bridge THEN 'yes' END AS bridge,
        CASE WHEN is_tunnel THEN 'yes' END AS tunnel,
-       maxspeed_kmh, oneway, surface, width_m, length_m,
+       maxspeed_kmh, oneway, surface, width_m, length_m, motor_access,
        ST_AsWKB(CASE WHEN direction = 'backward' THEN ST_Reverse(geometry)
                      ELSE geometry END) AS wkb
 FROM flat.segment

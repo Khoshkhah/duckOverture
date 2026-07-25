@@ -139,8 +139,8 @@ def test_report_requires_flatten(built, tmp_path):
         load_roads(copy, report=True)
 
 
-ATTRS = ["highway", "subclass", "name", "level", "surface", "width_m", "maxspeed_kmh",
-         "is_bridge", "is_tunnel", "is_link", "oneway", "direction"]
+# the real list, not a copy — a duplicate drifts and then asserts the wrong invariant
+from duckoverture.flatten import _ATTRS as ATTRS  # noqa: E402
 
 
 def _q(out, sql):
@@ -373,3 +373,53 @@ def test_turn_restrictions_are_edges_mode_only(built):
     flatten(out, mode="attrs", log=lambda *a: None)
     assert "flat.turn_restriction" not in flatten(out, mode="attrs", log=lambda *a: None)
     assert "flat.turn_restriction" in flatten(out, mode="edges", log=lambda *a: None)
+
+
+def test_access_closures_are_exposed_and_truck_limits_are_not_closures(built):
+    """access_restrictions was only ever mined for `oneway`, so closed roads read as drivable.
+
+    The trap is the opposite error: most non-directional motor denials are vehicle size limits
+    ("no vehicles over 3 m"), which do not close a road to a car. Treating those as closures would
+    remove more drivable road than the bug it fixes.
+    """
+    from duckoverture import flatten
+    out, _ = built
+    flatten(out, mode="edges", log=lambda *a: None)
+
+    # a size/weight limit must never close the road
+    assert _q(out, """SELECT count(*) FROM flat.segment
+        WHERE (max_height_m IS NOT NULL OR max_weight_t IS NOT NULL)
+          AND motor_access <> 'yes'""")[0] == 0
+
+    # an unqualified denial with no allowance must close it
+    assert _q(out, """
+        SELECT count(*) FROM flat.segment f
+        WHERE motor_access = 'yes' AND EXISTS (
+            SELECT 1 FROM transportation.segment s, unnest(s.access_restrictions) t(x)
+            WHERE s.id = f.segment_id AND x.access_type = 'denied' AND x."when" IS NULL
+              AND x.between IS NULL
+              AND NOT EXISTS (SELECT 1 FROM unnest(s.access_restrictions) u(y)
+                              WHERE y.access_type IN ('allowed', 'designated')))""")[0] == 0
+
+    assert set(_q(out, "SELECT list_sort(list_distinct(list(motor_access))) FROM flat.segment")[0]) \
+        <= {"yes", "no", "restricted"}
+
+
+def test_access_is_present_in_every_mode(built):
+    """A router reading -m segment must not silently lose the closures."""
+    from duckoverture import flatten
+    out, _ = built
+    for mode in ("segment", "attrs", "edges"):
+        flatten(out, mode=mode, log=lambda *a: None)
+        cols = {r[0] for r in _q_all(out, "DESCRIBE flat.segment")}
+        assert {"motor_access", "max_height_m", "max_weight_t"} <= cols, mode
+
+
+def _q_all(out, sql):
+    import duckdb as _d
+    con = _d.connect(str(out), read_only=True)
+    con.execute("LOAD spatial;")
+    try:
+        return con.execute(sql).fetchall()
+    finally:
+        con.close()

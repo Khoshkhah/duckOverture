@@ -78,6 +78,53 @@ def _flag_coverage(flag: str) -> str:
             f"ELSE x.between[2] - x.between[1] END)), 0.0)")
 
 
+def _denial(col: str, conditional: bool) -> str:
+    """A denial a driver actually has to obey.
+
+    Three things must be excluded or this reads far more closures than exist:
+
+    - ``heading IS NOT NULL`` — that is a one-way street, already handled by `oneway`.
+    - ``vehicle IS NOT NULL`` — "no vehicles over 3 m" is a lorry sign, not a closed road. 66 of
+      the 118 non-directional motor denials on Södermalm are these, and counting them as closures
+      would have removed 62 perfectly drivable segments.
+    - a foot/bicycle-scoped mode — a footway rule says nothing about cars.
+
+    ``conditional`` splits what remains: an unqualified denial closes the road, one scoped to
+    ``using`` (at_destination, as_customer) or ``during`` only restricts it.
+    """
+    cond = ('(x."when"."using" IS NOT NULL OR x."when".during IS NOT NULL)' if conditional
+            else '(x."when"."using" IS NULL AND x."when".during IS NULL)')
+    return (f"""len(list_filter({col}, x -> x.access_type = 'denied'
+            AND x."when".heading IS NULL AND x."when".vehicle IS NULL
+            AND (x."when"."mode" IS NULL OR list_has_any(x."when"."mode", {_MOTOR_SQL}))
+            AND {cond})) > 0""")
+
+
+def _motor_allowed(col: str) -> str:
+    """Whether an explicit allowance exists for motor traffic.
+
+    44 of the denied segments carry one — the OSM `access=no` + `motor_vehicle=destination`
+    pattern. Without this they would come out flatly closed when they are reachable by residents.
+    """
+    return (f"""len(list_filter({col}, x -> x.access_type IN ('allowed', 'designated')
+            AND (x."when"."mode" IS NULL OR list_has_any(x."when"."mode", {_MOTOR_SQL})))) > 0""")
+
+
+def _motor_access(col: str) -> str:
+    return (f"CASE WHEN {_denial(col, False)} AND NOT {_motor_allowed(col)} THEN 'no' "
+            f"WHEN {_denial(col, False)} OR {_denial(col, True)} THEN 'restricted' "
+            f"ELSE 'yes' END")
+
+
+def _vehicle_limit(col: str, dim: str, unit: str) -> str:
+    """Tightest "denied above X" limit on the segment, as the largest vehicle still allowed."""
+    return (f"""list_min(list_transform(list_filter(flatten(list_transform(
+            list_filter({col}, x -> x.access_type = 'denied' AND x."when".vehicle IS NOT NULL),
+            x -> x."when".vehicle)),
+            v -> v.dimension = '{dim}' AND v.comparison = 'greater_than' AND v.unit = '{unit}'),
+            v -> v.value))""")
+
+
 def _breakpoints(connectors: bool = False) -> str:
     """Every fraction at which the segment must be cut.
 
@@ -159,7 +206,12 @@ SELECT
     CASE WHEN len(list_filter({_at_mid('access_restrictions')},
               x -> x.access_type = 'denied' AND x."when".heading = 'forward'
                    AND (x."when".mode IS NULL OR list_has_any(x."when".mode, {_MOTOR_SQL})))) > 0
-         THEN 'backward' ELSE 'forward' END     AS direction
+         THEN 'backward' ELSE 'forward' END     AS direction,
+    -- can a car use this at all? 132 edges on Södermalm are hard-closed and used to read as
+    -- ordinary two-way streets, because access_restrictions was only ever mined for `oneway`.
+    {_motor_access(_at_mid('access_restrictions'))}  AS motor_access,
+    {_vehicle_limit(_at_mid('access_restrictions'), 'height', 'm')}::DOUBLE AS max_height_m,
+    {_vehicle_limit(_at_mid('access_restrictions'), 'weight', 't')}::DOUBLE AS max_weight_t
 FROM pieces
 """
 
@@ -193,6 +245,13 @@ SELECT
               x -> x.access_type = 'denied' AND x."when".heading = 'forward'
                    AND (x."when".mode IS NULL OR list_has_any(x."when".mode, {_MOTOR_SQL})))) > 0
          THEN 'backward' ELSE 'forward' END     AS direction,
+    -- Deliberately presence-based, not dominant like the columns above. The costs are asymmetric:
+    -- missing a closure routes a car down a closed road, over-reporting one only avoids it. So a
+    -- closure anywhere on the segment closes the whole row in this mode. Use -m attrs or -m edges
+    -- to get the closure on just the stretch it applies to.
+    {_motor_access('access_restrictions')}      AS motor_access,
+    {_vehicle_limit('access_restrictions', 'height', 'm')}::DOUBLE AS max_height_m,
+    {_vehicle_limit('access_restrictions', 'weight', 't')}::DOUBLE AS max_weight_t,
     ST_Length_Spheroid(geometry)                AS length_m,
     geometry                                    AS geometry
 FROM transportation.segment
@@ -203,7 +262,8 @@ WHERE subtype = 'road'
 # The attributes that define a distinct stretch of road. Two adjacent pieces agreeing on all of
 # these are the same road and must not be separate rows.
 _ATTRS = ["highway", "subclass", "name", "level", "surface", "width_m", "maxspeed_kmh",
-          "is_bridge", "is_tunnel", "is_link", "oneway", "direction"]
+          "is_bridge", "is_tunnel", "is_link", "oneway", "direction",
+          "motor_access", "max_height_m", "max_weight_t"]
 
 # Splitting at every `between` over-fragments badly: breakpoints come from rules that often resolve
 # to the same value, so a 932 m footpath came out as 16 pieces of which 15 were identical. Cut only

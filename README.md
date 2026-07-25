@@ -333,6 +333,32 @@ no positive "this is two-way". So `oneway = false` conflates:
 3,559 roads are two-way *by assumption*. That is the OSM convention and it is usually right, but
 the data cannot distinguish "known two-way" from "nobody said".
 
+### Access is more than direction — now read
+
+`access_restrictions` carries closures and vehicle limits alongside the heading denials that make
+a road one-way. `flat.segment` used to mine it **only** for `oneway`, so 132 edges (7.7 km) that
+are flatly closed read as ordinary two-way streets. Three columns now carry the rest:
+
+| column | Södermalm (`-m edges`) |
+|---|---|
+| `motor_access` — `yes` / `restricted` / `no` | 10,022 · 86 · **59** |
+| `max_height_m` | 100 edges, 1.8–14.7 m |
+| `max_weight_t` | 22 edges, 3.5–14.0 t |
+
+The trap is the opposite error. **66 of the 118 non-directional motor denials are vehicle size
+limits** — "no vehicles over 3 m" is a lorry sign, not a closed road. Counting those as closures
+would have removed 62 perfectly drivable segments, so `motor_access` ignores any denial scoped to
+`when.vehicle` and reports the limit separately.
+
+`restricted` is the OSM `access=no` + `motor_vehicle=destination` pattern: a denial paired with an
+`allowed` rule, or one scoped to `using` (`at_destination`, `as_customer`) or `during`. Reachable,
+but not through-routable — 44 segments carry it.
+
+Closures respect `between` like everything else, so a segment closed for its first 98% keeps its
+open tail as a separate `yes` edge. In `-m segment` the resolution is deliberately **presence**,
+not dominance: missing a closure routes a car down a closed road, over-reporting one only avoids
+it, so a closure anywhere closes the whole row.
+
 ### No lane counts
 
 There is no `lanes` column anywhere. `width_rules` gives metres, not a lane count.
