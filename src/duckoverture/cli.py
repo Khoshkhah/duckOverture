@@ -38,7 +38,7 @@ def build_cmd(boundary: Path, output: Path, release: str, types, clip: bool) -> 
 @cli.command("viz")
 @click.argument("db", type=click.Path(exists=True, path_type=Path))
 @click.option("-o", "--output", type=click.Path(path_type=Path), default=None,
-              help="Output HTML (default: <db stem>.html next to the db).")
+              help="Output HTML (default: viz/<db stem>.html).")
 @click.option("-p", "--palette", default="highsat", show_default=True,
               help="roadstyle palette: highsat | carto | mono.")
 @click.option("--backend", default="web", show_default=True,
@@ -49,8 +49,8 @@ def viz_cmd(db: Path, output: Path | None, palette: str, backend: str) -> None:
     Overture's `class` values are OSM-derived, so roadstyle styles them with no palette changes —
     bridge / tunnel / layer are unpacked from `road_flags` and `level_rules`.
     """
-    from .viz import render
-    render(db, output or db.with_suffix(".html"), palette=palette, backend=backend)
+    from .viz import default_output, render
+    render(db, output or default_output(db), palette=palette, backend=backend)
 
 
 @cli.command("types")

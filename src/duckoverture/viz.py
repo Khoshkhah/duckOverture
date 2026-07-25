@@ -40,6 +40,17 @@ WHERE subtype = 'road'
 """
 
 
+def default_output(db: str | Path) -> Path:
+    """Where a map goes when the caller does not say: ``viz/<stem>.html``, beside the data dir.
+
+    Rendered maps are outputs, not data — keeping them out of ``data/`` means the two can be
+    cleaned, gitignored and synced independently.
+    """
+    db = Path(db)
+    root = db.parent.parent if db.parent.name == "data" else db.parent
+    return root / "viz" / f"{db.stem}.html"
+
+
 def load_roads(db: str | Path):
     """Overture road segments as a GeoDataFrame with roadstyle-shaped columns."""
     import geopandas as gpd

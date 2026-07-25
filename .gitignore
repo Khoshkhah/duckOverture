@@ -3,3 +3,4 @@ __pycache__/
 *.duckdb
 *.egg-info/
 data/
+viz/

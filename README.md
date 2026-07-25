@@ -109,13 +109,16 @@ build("boundary.geojson", "area.duckdb", types=["transportation"])
 ## Visualise
 
 ```bash
-duckoverture viz data/sodermalm.duckdb -o sodermalm.html
+duckoverture viz data/sodermalm.duckdb
 ```
 
 ```
 4,203 road segments  |  bridges 84 · tunnels 243 · levelled 303 · speed limits 965
-wrote sodermalm.html
+wrote viz/sodermalm.html
 ```
+
+Maps land in `viz/`, not `data/` — they are outputs, not data, so the two clean and sync
+independently. `-o` overrides.
 
 A self-contained [roadstyle](https://pypi.org/project/roadstyle/) map — one file, opens from disk.
 

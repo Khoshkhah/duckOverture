@@ -73,3 +73,12 @@ def test_boundary_unions_multiple_features(tmp_path):
     con = _connect(tmp_path / "out.duckdb")
     assert _load_boundary(con, p) == (0.0, 0.0, 6.0, 1.0)
     con.close()
+
+
+def test_default_output_goes_to_viz_dir(tmp_path):
+    """Maps are outputs, not data — they must not land in data/."""
+    from duckoverture.viz import default_output
+    # a db inside data/ -> sibling viz/
+    assert default_output(tmp_path / "data" / "sodermalm.duckdb") == tmp_path / "viz" / "sodermalm.html"
+    # a db anywhere else -> viz/ beside it
+    assert default_output(tmp_path / "sodermalm.duckdb") == tmp_path / "viz" / "sodermalm.html"
