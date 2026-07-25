@@ -76,10 +76,10 @@ def test_viz_renders(built, tmp_path):
     g = load_roads(out)
     assert len(g) > 0
     # the columns roadstyle reads must all be present after unpacking the nested ones
-    for c in ("highway", "is_bridge", "is_tunnel", "layer", "maxspeed_kmh", "geometry"):
+    for c in ("class", "is_bridge", "is_tunnel", "layer", "maxspeed_kmh", "geometry"):
         assert c in g.columns, f"{c} missing — roadstyle will not style this"
-    # highway must carry Overture's class values, which roadstyle resolves directly
-    assert g.highway.notna().any()
+    # kept under Overture's own name; roadstyle is told via highway_col="class"
+    assert g["class"].notna().any()
     html = render(out, tmp_path / "m.html", log=lambda *a: None)
     assert html.exists() and html.stat().st_size > 10_000
 
@@ -94,7 +94,7 @@ def test_report_mode_is_flat(built, tmp_path):
     g = load_roads(out, report=True)
 
     assert len(g) > 0
-    for c in ("highway", "is_bridge", "is_tunnel", "layer", "maxspeed_kmh", "oneway", "geometry"):
+    for c in ("class", "is_bridge", "is_tunnel", "layer", "maxspeed_kmh", "oneway", "geometry"):
         assert c in g.columns, f"{c} missing — roadstyle will not style this"
     # nested columns must be summarised, not dumped
     for c in ("n_connectors", "all_speed_limits", "all_access", "flags", "source_dataset"):

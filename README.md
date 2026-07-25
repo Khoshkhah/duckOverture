@@ -123,13 +123,19 @@ independently. `-o` overrides.
 A self-contained [roadstyle](https://pypi.org/project/roadstyle/) map — one file, opens from disk.
 
 **roadstyle styles Overture with no palette changes.** Overture's `class` values are OSM-derived
-(`residential`, `footway`, `secondary`, …), so the mapping is a *rename*, not a translation table.
+(`residential`, `footway`, `secondary`, …), so roadstyle resolves them directly — the column keeps
+Overture's own name and roadstyle is pointed at it with `highway_col="class"`.
+
+`subclass` is resolved per piece from `subclass_rules`, **not** from Overture's scalar `subclass`
+column: that one is only populated when the subclass covers the whole segment, so it is NULL on
+every one of the 36 segments whose subclass is ranged. The report shows `subclass_rules` beside it
+as the evidence, with the range each rule applies to.
 The only work is unpacking three nested columns into the flat ones roadstyle reads for the
 grade-separation sandwich:
 
 | Overture | → | roadstyle |
 |---|---|---|
-| `class` | → | `highway` |
+| `class` | → | `class` *(kept — roadstyle is told via `highway_col`)* |
 | `names.primary` | → | `name` |
 | `road_flags` contains `is_bridge` / `is_tunnel` | → | `is_bridge` / `is_tunnel` |
 | `level_rules[1].value` | → | `layer` |
@@ -164,7 +170,7 @@ Clicking a road docks a **side panel** of 23 fields — **every one a scalar**:
 
 ```
 segment_id           9ca6940d-4e06-43e0-bcdd-b8968b8b2fc4
-highway              secondary          name       Stadsgårdsleden
+class                secondary          name       Stadsgårdsleden
 maxspeed_kmh         30                 oneway     True
 surface              paved              length_m   1693.5
 layer                -1                 is_tunnel  true
@@ -214,8 +220,9 @@ the segment: **60 km/h**, true of 86% of it.
 One row per segment, so it joins 1:1 on `segment_id`:
 
 ```
-piece_id · segment_id · highway · subclass · name · level · surface · width_m
-maxspeed_kmh · is_bridge · is_tunnel · is_link · oneway · direction · length_m · geometry
+piece_id · segment_id · class · subclass · name · level · surface · width_m
+maxspeed_kmh · is_bridge · is_tunnel · is_link · oneway · direction · motor_access
+max_height_m · max_weight_t · is_roundabout · length_m · geometry
 ```
 
 ### Three modes

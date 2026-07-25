@@ -5,6 +5,7 @@ resolves them directly — mapping Overture to roadstyle is a **rename**, not a 
 The only real work is unpacking three nested columns into the flat ones roadstyle reads for the
 grade-separation sandwich:
 
+    class        -> class               (kept under Overture's own name)
     road_flags   -> is_bridge / is_tunnel  (list of struct(values[], between[]))
     level_rules  -> layer               (list of struct(value, between[]))
     speed_limits -> maxspeed_kmh        (list of struct(max_speed struct(value, unit)))
@@ -50,7 +51,7 @@ GEOM_EXPR = (f"CASE WHEN {_heading_denied('forward')} AND NOT {_heading_denied('
 SEGMENT_SQL = f"""
 SELECT
     id,
-    class                                                          AS highway,
+    class                                                          AS "class",
     names.primary                                                  AS name,
     subclass,
     list_contains(flatten(list_transform(road_flags, x -> x.values)),
@@ -84,7 +85,7 @@ def _report_select(con, raw: bool = False) -> str:
         # identity
         "f.segment_id", "f.piece_id",
         # what roadstyle styles by
-        "f.highway", "f.subclass", "f.name",
+        "f.\"class\"", "f.subclass", "f.name",
         # resolved scalars
         "f.maxspeed_kmh", "f.oneway", "f.direction", "f.surface", "f.width_m",
         "round(f.length_m, 1) AS length_m", "f.level AS layer",
@@ -95,6 +96,9 @@ def _report_select(con, raw: bool = False) -> str:
         # nested columns, summarised to one readable value each
         "len(s.connectors) AS n_connectors",
         "len(s.prohibited_transitions) AS n_turn_restrictions_segment",
+        "list_aggregate(list_transform(s.subclass_rules, x -> x.value"
+        "     || coalesce(' [' || round(x.between[1], 3) || '-' || round(x.between[2], 3) || ']', ''))," 
+        "     'string_agg', ' / ') AS subclass_rules",
         "list_aggregate(list_transform(s.speed_limits, x -> x.max_speed.value::VARCHAR),"
         " 'string_agg', ' / ') AS all_speed_limits",
         "list_aggregate(list_transform(s.access_restrictions, x -> x.access_type"
@@ -140,7 +144,7 @@ def default_output(db: str | Path) -> Path:
 # dominant rule — so when it exists the map uses corrected values instead of re-deriving them
 # with the naive `[1]` shortcut.
 FLAT_SQL = """
-SELECT piece_id, segment_id, highway, subclass, name, level AS layer,
+SELECT piece_id, segment_id, "class", subclass, name, level AS layer,
        is_bridge, is_tunnel,
        maxspeed_kmh, oneway, surface, width_m, length_m, motor_access,
        ST_AsWKB(CASE WHEN direction = 'backward' THEN ST_Reverse(geometry)
@@ -215,15 +219,15 @@ def render(db: str | Path, out: str | Path, palette: str = "highsat",
     # roadstyle defaults these to "bridge"/"tunnel". We name them is_bridge/is_tunnel to match
     # flat.segment, so they have to be passed — without this the grade-separation sandwich silently
     # flattens and every tunnel draws on top of the road above it.
-    kw = dict(backend=backend, palette=palette,
+    kw = dict(backend=backend, palette=palette, highway_col="class",
               bridge_col="is_bridge", tunnel_col="is_tunnel")
     if report:
         log(f"  report mode: {len(g.columns) - 1} fields per road in the click panel")
         kw.update(road_popup="all", popup_mode="panel", road_tooltip=["name", "class"])
     else:
         # the default popup list names "bridge"/"tunnel", which no longer exist here
-        kw.update(tooltip=["name", "highway", "subclass", "maxspeed_kmh"],
-                  road_popup=["name", "highway", "subclass", "maxspeed_kmh", "oneway",
+        kw.update(tooltip=["name", "class", "subclass", "maxspeed_kmh"],
+                  road_popup=["name", "class", "subclass", "maxspeed_kmh", "oneway",
                               "is_bridge", "is_tunnel", "layer", "length_m"])
     m = rs.render_edges(g, **kw)
     out = Path(out)

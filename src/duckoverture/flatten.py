@@ -214,7 +214,9 @@ SELECT
     id                                          AS segment_id,
     piece_no, start_lr, end_lr, geometry, conns,
     (end_lr - start_lr) * ST_Length_Spheroid(geometry) AS piece_m,
-    class                                       AS highway,
+    class                                       AS "class",
+    -- from subclass_rules, NOT Overture's scalar `subclass`: that one is only set when
+    -- the subclass covers the whole segment, so it is NULL on all 36 ranged segments.
     {_at_mid('subclass_rules')}[1].value        AS subclass,
     names.primary                               AS name,
     -- one value per piece, resolved at its midpoint
@@ -261,7 +263,7 @@ SELECT
     id                                          AS segment_id,
     1                                           AS piece_no,
     0.0 AS start_lr, 1.0 AS end_lr,
-    class                                       AS highway,
+    class                                       AS "class",
     {_dominant('subclass_rules')}.value         AS subclass,
     names.primary                               AS name,
     {_dominant('level_rules')}.value            AS level,
@@ -302,7 +304,7 @@ WHERE subtype = 'road'
 
 # The attributes that define a distinct stretch of road. Two adjacent pieces agreeing on all of
 # these are the same road and must not be separate rows.
-_ATTRS = ["highway", "subclass", "name", "level", "surface", "width_m", "maxspeed_kmh",
+_ATTRS = ["class", "subclass", "name", "level", "surface", "width_m", "maxspeed_kmh",
           "is_bridge", "is_tunnel", "is_link", "oneway", "direction",
           "motor_access", "max_height_m", "max_weight_t", "is_roundabout"]
 
