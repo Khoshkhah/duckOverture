@@ -40,6 +40,37 @@ WHERE subtype = 'road'
 """
 
 
+def _report_select(con) -> str:
+    """Every `transportation.segment` column, with nested ones rendered as readable JSON.
+
+    The side panel shows raw values, and a Python ``dict``/``list`` repr of Overture's structs is
+    unreadable. ``to_json`` turns each into text the panel can display verbatim. Nested columns are
+    detected from the live schema rather than hardcoded, so anything Overture adds still appears.
+    """
+    cols = con.execute("DESCRIBE transportation.segment").fetchall()
+    parts = []
+    for name, dtype, *_ in cols:
+        if name == "geometry":
+            continue
+        nested = "STRUCT" in dtype.upper() or dtype.endswith("[]") or "MAP(" in dtype.upper()
+        q = f'"{name}"'
+        parts.append(f"to_json({q})::VARCHAR AS {q}" if nested else f"{q}")
+    # the flat columns roadstyle styles by — derived, so they must not collide with originals
+    parts += [
+        'class AS highway',
+        'names.primary AS name',
+        "CASE WHEN list_contains(flatten(list_transform(road_flags, x -> x.values)), 'is_bridge')"
+        " THEN 'yes' END AS bridge",
+        "CASE WHEN list_contains(flatten(list_transform(road_flags, x -> x.values)), 'is_tunnel')"
+        " THEN 'yes' END AS tunnel",
+        "CAST(level_rules[1].value AS VARCHAR) AS layer",
+        "speed_limits[1].max_speed.value AS maxspeed_kmh",
+        "ST_AsWKB(geometry) AS wkb",
+    ]
+    return ("SELECT " + ", ".join(parts) +
+            " FROM transportation.segment WHERE subtype = 'road'")
+
+
 def default_output(db: str | Path) -> Path:
     """Where a map goes when the caller does not say: ``viz/<stem>.html``, beside the data dir.
 
@@ -51,14 +82,18 @@ def default_output(db: str | Path) -> Path:
     return root / "viz" / f"{db.stem}.html"
 
 
-def load_roads(db: str | Path):
-    """Overture road segments as a GeoDataFrame with roadstyle-shaped columns."""
+def load_roads(db: str | Path, report: bool = False):
+    """Overture road segments as a GeoDataFrame with roadstyle-shaped columns.
+
+    ``report=True`` keeps **every** Overture column as well, nested ones as JSON text, for the
+    click-to-inspect side panel.
+    """
     import geopandas as gpd
 
     con = duckdb.connect(str(db), read_only=True)
     con.execute("INSTALL spatial; LOAD spatial;")
     try:
-        df = con.execute(SEGMENT_SQL).df()
+        df = con.execute(_report_select(con) if report else SEGMENT_SQL).df()
     except duckdb.CatalogException as e:
         raise SystemExit(
             f"{db} has no transportation.segment table — build it with "
@@ -71,19 +106,29 @@ def load_roads(db: str | Path):
 
 
 def render(db: str | Path, out: str | Path, palette: str = "highsat",
-           backend: str = "web", log=print) -> Path:
-    """Render the road network of an extract to a self-contained HTML map."""
+           backend: str = "web", report: bool = False, log=print) -> Path:
+    """Render the road network of an extract to a self-contained HTML map.
+
+    ``report=True`` produces the **inspection** version: every Overture column travels with the
+    map, and clicking a road docks a side panel showing all of them
+    (roadstyle ``road_popup="all"`` + ``popup_mode="panel"``).
+    """
     try:
         import roadstyle as rs
     except ImportError as e:                                    # pragma: no cover
         raise SystemExit('viz needs roadstyle: pip install "duckoverture[viz]"') from e
 
-    g = load_roads(db)
+    g = load_roads(db, report=report)
     log(f"{len(g):,} road segments  |  bridges {g.bridge.notna().sum():,} · "
         f"tunnels {g.tunnel.notna().sum():,} · levelled {g.layer.notna().sum():,} · "
         f"speed limits {g.maxspeed_kmh.notna().sum():,}")
-    m = rs.render_edges(g, backend=backend, palette=palette,
-                        tooltip=["name", "highway", "subclass", "maxspeed_kmh"])
+    kw = dict(backend=backend, palette=palette)
+    if report:
+        log(f"  report mode: {len(g.columns) - 1} fields per road in the click panel")
+        kw.update(road_popup="all", popup_mode="panel", road_tooltip=["name", "class"])
+    else:
+        kw.update(tooltip=["name", "highway", "subclass", "maxspeed_kmh"])
+    m = rs.render_edges(g, **kw)
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     m.save(str(out))

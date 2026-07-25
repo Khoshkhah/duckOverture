@@ -43,14 +43,22 @@ def build_cmd(boundary: Path, output: Path, release: str, types, clip: bool) -> 
               help="roadstyle palette: highsat | carto | mono.")
 @click.option("--backend", default="web", show_default=True,
               help="roadstyle backend: web | folium | lonboard.")
-def viz_cmd(db: Path, output: Path | None, palette: str, backend: str) -> None:
+@click.option("--report", is_flag=True,
+              help="Inspection map: every Overture field in a click-to-open side panel.")
+def viz_cmd(db: Path, output: Path | None, palette: str, backend: str, report: bool) -> None:
     """Render an extract's road network to a self-contained HTML map.
 
     Overture's `class` values are OSM-derived, so roadstyle styles them with no palette changes —
     bridge / tunnel / layer are unpacked from `road_flags` and `level_rules`.
+
+    With --report, every Overture column travels with the map and clicking a road docks a side
+    panel showing all of them; nested structs are rendered as JSON so they stay readable.
     """
     from .viz import default_output, render
-    render(db, output or default_output(db), palette=palette, backend=backend)
+    out = output or default_output(db)
+    if report and output is None:
+        out = out.with_name(f"{out.stem}_report.html")
+    render(db, out, palette=palette, backend=backend, report=report)
 
 
 @cli.command("types")

@@ -82,3 +82,24 @@ def test_viz_renders(built, tmp_path):
     assert g.highway.notna().any()
     html = render(out, tmp_path / "m.html", log=lambda *a: None)
     assert html.exists() and html.stat().st_size > 10_000
+
+
+def test_report_mode_carries_every_field(built, tmp_path):
+    """--report must keep ALL Overture columns, with nested ones readable as JSON."""
+    pytest.importorskip("roadstyle")
+    import json as _json
+    from duckoverture.viz import load_roads, render
+    out, _ = built
+    plain = load_roads(out)
+    full = load_roads(out, report=True)
+    assert len(full.columns) > len(plain.columns), "report mode added no fields"
+    # the raw Overture columns must be present alongside the roadstyle-shaped ones
+    for c in ("id", "connectors", "speed_limits", "access_restrictions", "sources"):
+        assert c in full.columns
+    for c in ("highway", "bridge", "tunnel", "layer", "maxspeed_kmh"):
+        assert c in full.columns
+    # nested ones must be JSON TEXT, not python reprs — the panel shows values verbatim
+    s = full.loc[full.connectors.notna(), "connectors"].iloc[0]
+    assert isinstance(s, str) and _json.loads(s), "connectors is not readable JSON"
+    html = render(out, tmp_path / "r.html", report=True, log=lambda *a: None)
+    assert html.exists() and html.stat().st_size > 10_000

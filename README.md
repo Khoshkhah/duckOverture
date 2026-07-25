@@ -137,6 +137,33 @@ Sub-range rules (`between`) collapse to the segment's first rule — roadstyle s
 so a segment that is a bridge for part of its length is drawn as a bridge. Splitting at sub-range
 boundaries belongs in the flatten stage.
 
+### Report mode — click a road, see everything
+
+```bash
+duckoverture viz data/sodermalm.duckdb --report
+```
+
+```
+4,203 road segments  |  bridges 84 · tunnels 243 · levelled 303 · speed limits 965
+  report mode: 28 fields per road in the click panel
+wrote viz/sodermalm_report.html
+```
+
+Every Overture column travels with the map, and clicking a road docks a **side panel** listing all
+of them (roadstyle `road_popup="all"` + `popup_mode="panel"`).
+
+Nested columns are rendered as **JSON text** so they stay readable in the panel — a Python struct
+repr is not:
+
+```
+connectors             [{"connector_id":"a0c1c021-...","at":0.0}, ...]
+access_restrictions    [{"access_type":"denied","when":{"heading":"backward", ...}}]
+prohibited_transitions [{"sequence":[{"connector_id":"3d55ab80-...", ...}]}]
+```
+
+Which columns are nested is read from the **live schema**, not hardcoded — anything Overture adds
+to the format shows up in the panel automatically.
+
 Needs the extra: `pip install "duckoverture[viz]"`.
 
 ## Install
