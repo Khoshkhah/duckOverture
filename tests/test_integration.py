@@ -97,7 +97,7 @@ def test_report_mode_is_flat(built, tmp_path):
     for c in ("class", "is_bridge", "is_tunnel", "level", "maxspeed_kmh", "oneway", "geometry"):
         assert c in g.columns, f"{c} missing — roadstyle will not style this"
     # nested columns must be summarised, not dumped
-    for c in ("n_connectors", "all_speed_limits", "all_access", "flags", "source_dataset"):
+    for c in ("all_speed_limits", "all_access", "flags", "source_dataset"):
         assert c in g.columns
     for c in g.columns:
         if c == "geometry":

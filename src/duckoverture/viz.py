@@ -84,6 +84,10 @@ def _report_select(con, raw: bool = False) -> str:
     if not _has_flat(con):
         raise SystemExit("report needs flat.segment — run `duckoverture flatten <db>` first")
 
+    # `segment` mode has no junctions to name — the connector columns only exist once the rows
+    # are cut at them. Selecting them unconditionally broke the report in that mode, the same way
+    # flat.turn_restriction did.
+    flat_cols = {r[0] for r in con.execute("DESCRIBE flat.segment").fetchall()}
     parts = [
         # identity
         "f.segment_id", "f.piece_id",
@@ -103,7 +107,11 @@ def _report_select(con, raw: bool = False) -> str:
         "f.motor_access", "f.max_height_m", "f.max_weight_t",
         "CASE WHEN f.is_roundabout THEN true END AS is_roundabout",
         # nested columns, summarised to one readable value each
-        "len(s.connectors) AS n_connectors",
+        # No connector COUNT: it was the parent segment's, so a 2.6 m piece with two junctions
+        # reported 39, and it is pieces+1 on 92% of segments anyway. What a piece can actually say
+        # is which two junctions are its own — from_connector_id / to_connector_id below, where a
+        # synthetic `<segment_id>@<lr>` id marks a cut at an attribute change rather than a
+        # junction.
         "len(s.prohibited_transitions) AS n_turn_restrictions_segment",
         "list_aggregate(list_transform(s.subclass_rules, x -> x.value"
         "     || coalesce(' [' || round(x.between[1], 3) || '-' || round(x.between[2], 3) || ']', ''))," 
@@ -120,6 +128,8 @@ def _report_select(con, raw: bool = False) -> str:
         "s.sources[1].dataset AS source_dataset",
         "s.\"version\" AS overture_version",
     ]
+    if {"from_connector_id", "to_connector_id"} <= flat_cols:
+        parts += ["f.from_connector_id", "f.to_connector_id"]
     # Renumbered turn bans exist only after `flatten -m edges`; the other modes have no such
     # table and the report must still render.
     if _has_table(con, "flat", "turn_restriction"):
@@ -272,7 +282,8 @@ def render(db: str | Path, out: str | Path, palette: str = "highsat",
                  "length_m", "level", "surface", "width_m",
                  "is_bridge", "is_tunnel", "is_indoor", "is_covered", "is_link",
                  "is_under_construction", "is_roundabout",
-                 "max_height_m", "max_weight_t", "turn_bans_here", "n_connectors"]
+                 "max_height_m", "max_weight_t", "turn_bans_here",
+                 "from_connector_id", "to_connector_id"]
         fields.sort(key=lambda c: (order.index(c) if c in order else len(order), c))
         # `lvl` is roadstyle's resolved elevation, added after we hand the data over, so it is not
         # in g.columns — name it anyway or the panel loses the only always-present grade number.
