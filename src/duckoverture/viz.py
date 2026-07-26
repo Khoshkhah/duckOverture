@@ -47,6 +47,9 @@ ONEWAY_EXPR = f"({_heading_denied('backward')} OR {_heading_denied('forward')})"
 GEOM_EXPR = (f"CASE WHEN {_heading_denied('forward')} AND NOT {_heading_denied('backward')} "
              f"THEN ST_Reverse(geometry) ELSE geometry END")
 
+_DISPLAY_FLAGS = ("is_bridge", "is_tunnel", "is_indoor", "is_covered", "is_link",
+                  "is_under_construction", "is_roundabout")
+
 # Overture's nested columns -> the flat columns roadstyle reads.
 SEGMENT_SQL = f"""
 SELECT
@@ -88,11 +91,16 @@ def _report_select(con, raw: bool = False) -> str:
         "f.\"class\"", "f.subclass", "f.name",
         # resolved scalars
         "f.maxspeed_kmh", "f.oneway", "f.direction", "f.surface", "f.width_m",
+        # `level` is Overture's own statement, NULL on 95% of pieces. The resolved elevation is
+        # already in the panel as roadstyle's `lvl` (bridge -> >=1, tunnel -> <=-1, else level or
+        # 0); a `grade` column of our own came out identical to it on all 8,980 rows, so it is not
+        # worth printing the same number twice.
         "round(f.length_m, 1) AS length_m", "f.level",
-        "f.is_bridge", "f.is_tunnel", "f.is_indoor", "f.is_covered",
-        "f.is_link", "f.is_under_construction",
+        *(f"CASE WHEN f.{b} THEN true END AS {b}" for b in _DISPLAY_FLAGS[:4]),
+        *(f"CASE WHEN f.{b} THEN true END AS {b}" for b in _DISPLAY_FLAGS[4:6]),
         # resolved access — the raw `access` field below is the evidence behind it
-        "f.motor_access", "f.max_height_m", "f.max_weight_t", "f.is_roundabout",
+        "f.motor_access", "f.max_height_m", "f.max_weight_t",
+        "CASE WHEN f.is_roundabout THEN true END AS is_roundabout",
         # nested columns, summarised to one readable value each
         "len(s.connectors) AS n_connectors",
         "len(s.prohibited_transitions) AS n_turn_restrictions_segment",
@@ -149,7 +157,10 @@ def default_output(db: str | Path) -> Path:
 # with the naive `[1]` shortcut.
 FLAT_SQL = """
 SELECT piece_id, segment_id, "class", subclass, name, level,
-       is_bridge, is_tunnel,
+       -- TRUE or NULL: the popup hides nulls, so a road lists only the flags that apply
+       CASE WHEN is_bridge THEN true END AS is_bridge,
+       CASE WHEN is_tunnel THEN true END AS is_tunnel,
+       CASE WHEN is_indoor THEN true END AS is_indoor,
        maxspeed_kmh, oneway, surface, width_m, length_m, motor_access,
        ST_AsWKB(CASE WHEN direction = 'backward' THEN ST_Reverse(geometry)
                      ELSE geometry END) AS wkb
