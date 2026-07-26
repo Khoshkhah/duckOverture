@@ -1,4 +1,4 @@
-"""duckoverture — a boundary in, an Overture DuckDB out."""
+"""duckOverture — a boundary in, an Overture DuckDB out."""
 from .build import DEFAULT_RELEASE, build, build_type
 from .flatten import flatten
 from .schema import THEMES, TYPES, OvertureType, resolve

@@ -49,7 +49,7 @@ def fetch(db: str | Path, endpoint: str | None = None, timeout: int = 180,
         for i, url in enumerate(endpoints):
             req = urllib.request.Request(
                 url, data=urllib.parse.urlencode({"data": query}).encode(),
-                headers={"User-Agent": "duckoverture (github.com/kaveh/duckoverture)"})
+                headers={"User-Agent": "duckOverture (github.com/kaveh/duckoverture)"})
             try:
                 with urllib.request.urlopen(req, timeout=timeout + 30) as r:
                     payload = json.loads(r.read().decode())

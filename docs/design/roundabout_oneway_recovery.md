@@ -36,7 +36,7 @@ Measured on Nacka, joining Overture segments to their OSM source ways (see below
 | | edges | one-way |
 |---|---:|---:|
 | duckOSM (`junction='roundabout'`) | 210 | **210 (100%)** |
-| duckoverture `flat.segment`, same roads | 190 | **33 (17%)** |
+| duckOverture `flat.segment`, same roads | 190 | **33 (17%)** |
 
 **3,511 m of roundabout comes out two-way.** A router on `flat.segment` sends vehicles the wrong
 way round. This is the last known driving-correctness gap now that direction, turn restrictions
@@ -156,7 +156,7 @@ visible in the data rather than only in the README.
 ## Open questions for review
 
 1. **Which source do we build first** — Overpass (standalone, needs network) or duckOSM (offline,
-   cross-project)? Overpass keeps duckoverture self-contained, which has been the point of the
+   cross-project)? Overpass keeps duckOverture self-contained, which has been the point of the
    project so far. Either way the fetched ids land in the same `osm.roundabout_way` table, so the
    second source can be added later without changing `flatten`.
 2. **Should `direction` be derived for repaired roundabouts?** Knowing a ring is one-way does not

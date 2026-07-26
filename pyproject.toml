@@ -13,7 +13,8 @@ keywords = ["overture", "duckdb", "gis", "openstreetmap", "geoparquet"]
 dependencies = ["duckdb>=1.1", "click>=8.1"]
 
 [project.optional-dependencies]
-viz = ["roadstyle>=0.2", "geopandas>=0.14"]
+# tiles included: `duckoverture viz` embeds PMTiles by default
+viz = ["roadstyle[tiles]>=0.2", "geopandas>=0.14"]
 tiles = ["roadstyle[tiles]"]
 dev = ["pytest>=7"]
 
