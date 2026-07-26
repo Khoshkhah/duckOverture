@@ -91,6 +91,7 @@ def _report_select(con, raw: bool = False) -> str:
         "f.\"class\"", "f.subclass", "f.name",
         # resolved scalars
         "f.maxspeed_kmh", "f.oneway", "f.direction", "f.surface", "f.width_m",
+        "CASE WHEN f.oneway THEN 'one-way ' || f.direction END AS one_way",
         # `level` is Overture's own statement, NULL on 95% of pieces. The resolved elevation is
         # already in the panel as roadstyle's `lvl` (bridge -> >=1, tunnel -> <=-1, else level or
         # 0); a `grade` column of our own came out identical to it on all 8,980 rows, so it is not
@@ -261,9 +262,13 @@ def render(db: str | Path, out: str | Path, palette: str = "highsat",
         # away from", which drives line-offset. Our rows are one per road, so it is always False
         # and sat next to `oneway: False` reading as a contradiction. A list also fixes the field
         # ORDER, which "all" leaves to column order.
-        fields = [c for c in g.columns if c != "geometry" and not c.startswith("__rs")]
+        # `oneway` and `direction` stay in the properties for roadstyle and for anyone reading
+        # the GeoJSON, but the panel shows `one_way` instead — present only when it means
+        # something, rather than "oneway: False / direction: forward" on 88% of roads.
+        hide = {"geometry", "oneway", "direction"}
+        fields = [c for c in g.columns if c not in hide and not c.startswith("__rs")]
         order = ["segment_id", "piece_id", "class", "subclass", "name",
-                 "motor_access", "oneway", "direction", "maxspeed_kmh",
+                 "motor_access", "one_way", "maxspeed_kmh",
                  "length_m", "level", "surface", "width_m",
                  "is_bridge", "is_tunnel", "is_indoor", "is_covered", "is_link",
                  "is_under_construction", "is_roundabout",
