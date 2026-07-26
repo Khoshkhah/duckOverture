@@ -378,30 +378,42 @@ def test_turn_restrictions_renumber_onto_pieces(built):
     out, _ = built
     flatten(out, mode="edges", log=lambda *a: None)
 
-    # the owner piece must touch the first junction of the sequence
+    # the owner piece must touch the first junction crossed
     assert _q(out, """
         SELECT count(*) FROM flat.turn_restriction t
         JOIN flat.segment f ON f.piece_id = t.from_piece_id
-        WHERE t.seq_no = 1
-          AND t.via_connector_id NOT IN (f.from_connector_id, f.to_connector_id)""")[0] == 0
+        WHERE t.via_connector_ids[1] NOT IN (f.from_connector_id, f.to_connector_id)""")[0] == 0
 
-    # and so must every referenced piece
+    # the banned piece must touch the last junction crossed
     assert _q(out, """
         SELECT count(*) FROM flat.turn_restriction t
         JOIN flat.segment f ON f.piece_id = t.to_piece_id
-        WHERE t.via_connector_id NOT IN (f.from_connector_id, f.to_connector_id)""")[0] == 0
+        WHERE t.via_connector_ids[len(t.via_connector_ids)]
+              NOT IN (f.from_connector_id, f.to_connector_id)""")[0] == 0
 
-    # exactly one piece per step, or the renumbering is ambiguous
+    # every via leg must span its two junctions — enter at one, leave at the other
+    assert _q(out, """
+        SELECT count(*) FROM flat.turn_restriction t,
+             UNNEST(range(1, len(t.via_piece_ids) + 1)) u(i)
+        JOIN flat.segment f ON f.piece_id = t.via_piece_ids[u.i]
+        WHERE t.via_connector_ids[u.i]     NOT IN (f.from_connector_id, f.to_connector_id)
+           OR t.via_connector_ids[u.i + 1] NOT IN (f.from_connector_id, f.to_connector_id)
+        """)[0] == 0
+
+    # one row per restriction — the renumbering may not be ambiguous — and tr_id
+    # (`<from_piece_id>#<tr_no>`, the row's own identity) must be globally unique
     assert _q(out, """
         SELECT count(*) FROM (SELECT 1 FROM flat.turn_restriction
-                              GROUP BY from_piece_id, tr_no, seq_no
-                              HAVING count(DISTINCT to_piece_id) > 1)""")[0] == 0
+                              GROUP BY from_piece_id, tr_id HAVING count(*) > 1)""")[0] == 0
+    assert _q(out, "SELECT count(*) - count(DISTINCT tr_id) FROM flat.turn_restriction")[0] == 0
 
-    # no half-resolved chains: a partial sequence is a guess, not a restriction
+    # and the via columns must agree: via_type says what via_id is, the lists line up
     assert _q(out, """
-        SELECT count(*) FROM (
-            SELECT from_piece_id, tr_no, count(*) n, max(seq_no) hi
-            FROM flat.turn_restriction GROUP BY 1, 2 HAVING n <> hi)""")[0] == 0
+        SELECT count(*) FROM flat.turn_restriction
+        WHERE (via_type = 'piece') <> (via_piece_ids IS NOT NULL)
+           OR len(via_connector_ids) <> coalesce(len(via_piece_ids), 0) + 1
+           OR via_id <> CASE via_type WHEN 'piece' THEN via_piece_ids[1]
+                                      ELSE via_connector_ids[1] END""")[0] == 0
 
 
 def test_turn_restrictions_are_edges_mode_only(built):

@@ -522,16 +522,56 @@ resolved AS (
                 AND st.next_connector_id IN (f.from_connector_id, f.to_connector_id) END
 ),
 -- A partly-resolved chain is not a restriction, it is a guess. Overture's splitter drops these
--- too; on a clipped extract most of them are manoeuvres leaving the boundary.
+-- too; on a clipped extract those are manoeuvres leaving the boundary.
 complete AS (
     SELECT from_piece_id, tr_no FROM resolved
     GROUP BY 1, 2 HAVING count(DISTINCT seq_no) = any_value(len(seq))
 )
-SELECT r.from_piece_id, r.from_segment_id, r.tr_no, r.seq_no,
-       r.via_connector_id, r.to_piece_id, r.to_segment_id,
-       r.final_heading, r.when_heading, r.during, r.mode
+-- ONE ROW PER RESTRICTION — a ban is "from this piece, via something, you may not enter that
+-- piece", and that is one fact, not one row per traversal step (the step form kept reading as
+-- several bans). The via is typed the way OSM types it: via_type 'connector' = the classic
+-- node-pivot ban, via_id is that connector; via_type 'piece' = a via-way ban, via_id is the
+-- (first) via piece. The lists carry the general case — OSM allows several via ways in one
+-- restriction (r20993574 here has via = node + way + node) — and via_connector_ids has every
+-- junction crossed, in order, which is also where the splitter validation multiset lives.
+-- tr_id: a small integer, because the id's job is to be QUOTED — "ban 12 looks wrong" — and a
+-- 45-char composite cannot be. row_number over the group keys, so it is unique and, for a given
+-- db+mode, deterministic. It carries no meaning on purpose: identity and the trace to the raw
+-- rule are the (from_piece_id, tr_no) COLUMNS — prohibited_transitions[tr_no] IS the rule.
+-- (Rejected: uuid-composite ids twice, unquotable; a content hash of the ban, not unique —
+-- two raw rules can carry the identical path and conditions.)
+--
+-- Column order is the router's reading order: the forbidden piece path first (a router's graph
+-- is pieces + connectors; segments do not exist in it), then the via conveniences and the
+-- conditions, then provenance (segment ids, tr_no) and the resolution audit trail (the heading
+-- columns — consumed while picking pieces; the resolved path is self-directional).
+SELECT row_number() OVER (ORDER BY r.from_piece_id, r.tr_no)                 AS tr_id,
+       -- the forbidden path, in piece space
+       r.from_piece_id,
+       list(r.to_piece_id   ORDER BY r.seq_no)
+           FILTER (WHERE r.seq_no < len(r.seq))                              AS via_piece_ids,
+       list(r.via_connector_id ORDER BY r.seq_no)                            AS via_connector_ids,
+       any_value(r.to_piece_id)   FILTER (WHERE r.seq_no = len(r.seq))       AS to_piece_id,
+       -- the via, typed and as one scalar
+       CASE WHEN count(*) > 1 THEN 'piece' ELSE 'connector' END              AS via_type,
+       coalesce((list(r.to_piece_id ORDER BY r.seq_no)
+                    FILTER (WHERE r.seq_no < len(r.seq)))[1],
+                any_value(r.via_connector_id))                               AS via_id,
+       -- conditions on the ban
+       any_value(r.during)        AS during,
+       any_value(r.mode)          AS mode,
+       -- provenance: the raw rule is prohibited_transitions[tr_no] on from_segment_id
+       any_value(r.from_segment_id)                                          AS from_segment_id,
+       r.tr_no,
+       list(r.to_segment_id ORDER BY r.seq_no)
+           FILTER (WHERE r.seq_no < len(r.seq))                              AS via_segment_ids,
+       any_value(r.to_segment_id) FILTER (WHERE r.seq_no = len(r.seq))       AS to_segment_id,
+       -- resolution audit trail
+       any_value(r.when_heading)  AS when_heading,
+       any_value(r.final_heading) AS final_heading
 FROM resolved r JOIN complete c USING (from_piece_id, tr_no)
-ORDER BY r.from_piece_id, r.tr_no, r.seq_no
+GROUP BY r.from_piece_id, r.tr_no
+ORDER BY r.from_piece_id, r.tr_no
 """
 
 
@@ -638,17 +678,17 @@ def flatten(db: str | Path, mode: str = "segment", log=print) -> dict[str, int]:
     if mode in ("edges", "routing"):
         t0 = time.perf_counter()
         con.execute(f"CREATE OR REPLACE TABLE flat.turn_restriction AS {_TURN_SQL}")
-        rows, kept = con.execute(
-            """SELECT count(*), count(DISTINCT (from_piece_id, tr_no))
+        rows, via_ways = con.execute(
+            """SELECT count(*), count(*) FILTER (WHERE via_type = 'piece')
                FROM flat.turn_restriction""").fetchone()
         src_tr = con.execute(
             """SELECT count(*) FROM transportation.segment s,
                UNNEST(s.prohibited_transitions) t(x) WHERE s.subtype='road'""").fetchone()[0]
         stats["flat.turn_restriction"] = rows
-        log(f"  flat.turn_restriction  {src_tr} transitions -> {kept} renumbered onto pieces "
-            f"({rows} steps)  {time.perf_counter()-t0:.1f}s")
-        if kept < src_tr:
-            log(f"  {src_tr - kept} dropped: sequence leaves the extract or the piece is unsplit")
+        log(f"  flat.turn_restriction  {src_tr} transitions -> {rows} bans renumbered onto "
+            f"pieces ({via_ways} via a way)  {time.perf_counter()-t0:.1f}s")
+        if rows < src_tr:
+            log(f"  {src_tr - rows} dropped: sequence leaves the extract or the piece is unsplit")
 
     # length conservation is the invariant that says the split was clean
     a, b = con.execute("""SELECT (SELECT sum(length_m) FROM flat.segment),
