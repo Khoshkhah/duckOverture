@@ -89,8 +89,8 @@ def _report_select(con, raw: bool = False) -> str:
         # resolved scalars
         "f.maxspeed_kmh", "f.oneway", "f.direction", "f.surface", "f.width_m",
         "round(f.length_m, 1) AS length_m", "f.level",
-        "f.is_bridge", "f.is_tunnel",
-        "f.is_link",
+        "f.is_bridge", "f.is_tunnel", "f.is_indoor", "f.is_covered",
+        "f.is_link", "f.is_under_construction",
         # resolved access — the raw `access` field below is the evidence behind it
         "f.motor_access", "f.max_height_m", "f.max_weight_t", "f.is_roundabout",
         # nested columns, summarised to one readable value each

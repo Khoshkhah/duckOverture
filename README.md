@@ -422,6 +422,33 @@ open tail as a separate `yes` edge. In `-m segment` the resolution is deliberate
 not dominance: missing a closure routes a car down a closed road, over-reporting one only avoids
 it, so a closure anywhere closes the whole row.
 
+### `is_indoor` is not `is_tunnel`
+
+Both put a road below grade, and Overture flags them separately, but they are different things: a
+tunnel is bored or cut under ground, an indoor route runs *inside a building* — a station
+concourse, a passage through a block. It sits at `level = -1` because that is a basement floor.
+
+Södermalm carries almost as many indoor as tunnel segments, and they overlap only partly
+(`-m edges`):
+
+| | pieces |
+|---|---:|
+| `is_tunnel` only | 171 |
+| both | 181 |
+| **`is_indoor` only** | **196** |
+
+`flat.segment` exposes `is_indoor`, `is_covered` and `is_under_construction` alongside the others.
+
+**The map still cannot tell them apart.** roadstyle draws the tunnel style — dashed casing, faded
+fill — from `lvl < 0`, and an indoor route at `level = -1` lands there too. The stacking is right
+(it really is below the street) but the styling reads "tunnel". Distinguishing them needs roadstyle
+to key that style on the tunnel column rather than on `lvl`; until then, click the road and read
+`is_indoor`.
+
+`is_under_construction` is **not** folded into `motor_access` — a road that does not exist yet is
+still reported as its class allows. Two pieces here, both cycleways already closed to cars, but on
+another extract a trunk road under construction would come through drivable. Filter on it.
+
 ### No lane counts
 
 There is no `lanes` column anywhere. `width_rules` gives metres, not a lane count.

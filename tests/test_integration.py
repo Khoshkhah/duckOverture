@@ -559,3 +559,30 @@ def test_motor_access_respects_the_class_not_just_the_rules(built):
     # but a car road with nothing said stays open — this must not close the whole network
     assert _q(out, """SELECT count(*) FROM flat.segment
         WHERE motor_access = 'yes' AND class IN ('residential', 'secondary', 'tertiary')""")[0] > 0
+
+
+def test_indoor_is_not_tunnel(built):
+    """is_indoor and is_tunnel are different things and both must be exposed.
+
+    A station concourse or a passage through a building sits below grade because it is a basement
+    floor, not because it is bored under ground. Södermalm carries almost as many indoor as tunnel
+    segments, and a third of the indoor ones are not tunnels at all — but roadstyle draws the
+    tunnel style from `lvl < 0`, so they render identically. The flag is the only way to tell.
+    """
+    from duckoverture import flatten
+    out, _ = built
+    flatten(out, mode="routing", log=lambda *a: None)
+
+    cols = {r[0] for r in _q_all(out, "DESCRIBE flat.segment")}
+    assert {"is_indoor", "is_covered", "is_under_construction"} <= cols
+
+    # they must not be aliases of each other
+    both, indoor_only = _q(out, """SELECT count(*) FILTER (WHERE is_indoor AND is_tunnel),
+                                          count(*) FILTER (WHERE is_indoor AND NOT is_tunnel)
+                                   FROM flat.segment""")
+    assert indoor_only > 0, "every indoor piece came out as a tunnel — the flags are conflated"
+
+    # a flag is a BOOLEAN, never NULL — list_contains(NULL, ...) is NULL, which bit is_link before
+    for f in ("is_bridge", "is_tunnel", "is_link", "is_indoor", "is_covered",
+              "is_under_construction", "is_roundabout"):
+        assert _q(out, f"SELECT count(*) FROM flat.segment WHERE {f} IS NULL")[0] == 0, f

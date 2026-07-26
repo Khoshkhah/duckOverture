@@ -261,11 +261,19 @@ SELECT
          ELSE {_at_mid('speed_limits')}[1].max_speed.value END::INTEGER AS maxspeed_kmh,
     -- flags that apply to THIS piece, not to the segment as a whole
     coalesce(list_contains(flatten(list_transform({_at_mid('road_flags')}, x -> x.values)),
-                  'is_bridge'), FALSE)          AS is_bridge,
+                  'is_bridge'), FALSE) AS is_bridge,
     coalesce(list_contains(flatten(list_transform({_at_mid('road_flags')}, x -> x.values)),
-                  'is_tunnel'), FALSE)          AS is_tunnel,
-    list_contains(flatten(list_transform({_at_mid('road_flags')}, x -> x.values)),
-                  'is_link')                    AS is_link,
+                  'is_tunnel'), FALSE) AS is_tunnel,
+    coalesce(list_contains(flatten(list_transform({_at_mid('road_flags')}, x -> x.values)),
+                  -- a concourse or a passage through a building: below grade
+                  -- because it is a basement floor, not because it is bored
+                  'is_indoor'), FALSE) AS is_indoor,
+    coalesce(list_contains(flatten(list_transform({_at_mid('road_flags')}, x -> x.values)),
+                  'is_covered'), FALSE) AS is_covered,
+    coalesce(list_contains(flatten(list_transform({_at_mid('road_flags')}, x -> x.values)),
+                  'is_link'), FALSE) AS is_link,
+    coalesce(list_contains(flatten(list_transform({_at_mid('road_flags')}, x -> x.values)),
+                  'is_under_construction'), FALSE) AS is_under_construction,
     -- one-way = a heading-scoped denial for motor traffic covering this piece
     coalesce(len(list_filter({_at_mid('access_restrictions')},
         x -> x.access_type = 'denied' AND x."when".heading IS NOT NULL
@@ -310,6 +318,9 @@ SELECT
     ({_flag_coverage('is_tunnel')} > 0.5
      AND {_flag_coverage('is_tunnel')} >  {_flag_coverage('is_bridge')})  AS is_tunnel,
     ({_flag_coverage('is_link')} > 0.5)                                   AS is_link,
+    ({_flag_coverage('is_indoor')} > 0.5)                                 AS is_indoor,
+    ({_flag_coverage('is_covered')} > 0.5)                                AS is_covered,
+    ({_flag_coverage('is_under_construction')} > 0.5)   AS is_under_construction,
     coalesce(len(list_filter(access_restrictions,
         x -> x.access_type = 'denied' AND x."when".heading IS NOT NULL
              AND (x."when".mode IS NULL OR list_has_any(x."when".mode, {_MOTOR_SQL})))) > 0, FALSE)
@@ -338,7 +349,8 @@ WHERE subtype = 'road'
 # these are the same road and must not be separate rows.
 _ATTRS = ["class", "subclass", "name", "level", "surface", "width_m", "maxspeed_kmh",
           "is_bridge", "is_tunnel", "is_link", "oneway", "direction",
-          "motor_access", "max_height_m", "max_weight_t", "is_roundabout"]
+          "motor_access", "max_height_m", "max_weight_t", "is_roundabout",
+          "is_indoor", "is_covered", "is_under_construction"]
 
 # Splitting at every `between` over-fragments badly: breakpoints come from rules that often resolve
 # to the same value, so a 932 m footpath came out as 16 pieces of which 15 were identical. Cut only
