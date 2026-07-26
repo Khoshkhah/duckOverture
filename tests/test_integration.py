@@ -603,3 +603,27 @@ def test_direction_is_null_where_travel_is_unrestricted(built):
     assert _q(out, "SELECT count(*) FROM flat.segment WHERE NOT oneway AND direction IS NOT NULL")[0] == 0
     assert set(_q(out, "SELECT list_sort(list_distinct(list(direction))) FROM flat.segment")[0]) \
         <= {"forward", "backward"}
+
+
+def test_flat_connector_covers_every_node_including_synthetic(built):
+    """The node table must place EVERY node an edge references, not just Overture's own.
+
+    9% of Södermalm's nodes are synthetic — the `<segment_id>@<lr>` ids minted where a piece
+    boundary is an attribute change rather than a junction. They have no row in
+    transportation.connector, so a router reading that table alone cannot locate them.
+    """
+    from duckoverture import flatten
+    out, _ = built
+    flatten(out, mode="routing", log=lambda *a: None)
+
+    assert _q(out, """
+        SELECT count(*) FROM (
+            SELECT from_connector_id AS id FROM flat.segment
+            UNION SELECT to_connector_id FROM flat.segment) e
+        WHERE NOT EXISTS (SELECT 1 FROM flat.connector c WHERE c.connector_id = e.id)""")[0] == 0
+
+    assert _q(out, "SELECT count(*) FROM flat.connector WHERE is_synthetic")[0] > 0
+    assert _q(out, "SELECT count(*) FROM flat.connector WHERE geometry IS NULL")[0] == 0
+    # degree counts edge-ends, so it must equal twice the edge count
+    n_ends = _q(out, "SELECT sum(degree) FROM flat.connector")[0]
+    assert n_ends == 2 * _q(out, "SELECT count(*) FROM flat.segment")[0]

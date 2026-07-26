@@ -503,6 +503,28 @@ ORDER BY r.from_piece_id, r.tr_no, r.seq_no
 """
 
 
+# The node table for the edge graph. Built from flat.segment's own endpoints rather than from
+# transportation.connector, because 609 of Södermalm's 6,504 nodes are SYNTHETIC — the
+# `<segment_id>@<lr>` ids minted where a piece boundary is an attribute change rather than a
+# junction. Those have no row upstream, so a router reading transportation.connector alone would
+# have 9% of its nodes with no coordinates. Taking the piece endpoints also guarantees the nodes
+# and edges agree by construction.
+_CONNECTOR_SQL = """
+WITH ends AS (
+    SELECT from_connector_id AS connector_id, ST_StartPoint(geometry) AS geom FROM flat.segment
+    UNION ALL
+    SELECT to_connector_id,   ST_EndPoint(geometry)   FROM flat.segment
+)
+SELECT connector_id,
+       connector_id LIKE '%@%'      AS is_synthetic,
+       count(*)::INTEGER            AS degree,   -- edge-ends meeting here; 1 = dead end
+       any_value(geom)              AS geometry
+FROM ends
+GROUP BY 1, 2
+ORDER BY 1
+"""
+
+
 MODES = ("segment", "attrs", "edges", "routing")
 
 
@@ -554,6 +576,29 @@ def flatten(db: str | Path, mode: str = "segment", log=print) -> dict[str, int]:
             "routing": "split at junctions + attribute changes (routable)"}[mode]
     log(f"  flat.segment  {src:,} segments -> {n:,} rows [{desc}]  "
         f"{time.perf_counter()-t0:.1f}s")
+
+    if mode in ("edges", "routing"):
+        t0 = time.perf_counter()
+        con.execute(f"CREATE OR REPLACE TABLE flat.connector AS {_CONNECTOR_SQL}")
+        n, syn, dead = con.execute(
+            """SELECT count(*), count(*) FILTER (WHERE is_synthetic),
+                      count(*) FILTER (WHERE degree = 1) FROM flat.connector""").fetchone()
+        stats["flat.connector"] = n
+        log(f"  flat.connector  {n:,} nodes ({syn:,} synthetic, {dead:,} dead ends)  "
+            f"{time.perf_counter()-t0:.1f}s")
+        # A real connector's position must agree with Overture's own; only the synthetic ones are
+        # ours to place.
+        drift = con.execute("""
+            SELECT coalesce(max(ST_Distance_Sphere(ST_FlipCoordinates(f.geometry),
+                                                    ST_FlipCoordinates(k.geometry))), 0)
+            FROM flat.connector f JOIN transportation.connector k ON k.id = f.connector_id
+            """).fetchone()[0]
+        if drift > 0.01:
+            # Expected until the LR parameterisation is fixed: Overture's `at` is a fraction of
+            # GEODESIC length, ST_LineSubstring cuts by 2D degree-space fraction, and at 59N those
+            # diverge. See docs/design/lr_parameterisation.md.
+            log(f"  NOTE: worst node sits {drift:.1f} m from Overture's connector "
+                f"(LR parameterisation, see docs/design/lr_parameterisation.md)")
 
     # Turn restrictions reference whole segments, so they only mean anything once the pieces have
     # junctions to hang off — the two connector-aware modes.
