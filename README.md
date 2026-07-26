@@ -1,4 +1,4 @@
-# duckoverture
+# duckOverture
 
 **Give it a boundary, get a DuckDB file with every Overture Maps table for that area.**
 
@@ -118,9 +118,19 @@ duckoverture viz data/sodermalm.duckdb
 ```
 
 ```
-4,203 road segments  |  bridges 84 · tunnels 243 · levelled 303 · speed limits 965
-wrote viz/sodermalm.html
+  tiles: PMTiles vector tiles embedded (--no-tiles for inline GeoJSON)
+8,980 road segments  |  oneway 1,623 · bridges 102 · tunnels 337 · levelled 420 · speed limits 2,287
+  report mode: 33 fields per road in the click panel
+  turn restrictions: 58 bans at 40 junctions
+wrote viz/sodermalm_report.html
 ```
+
+*(output after `flatten -m routing`, so the rows are routable pieces)*
+
+**The default is the full inspection map**: report side panel + embedded PMTiles vector tiles +
+per-class zoom thinning (roadstyle's standard table — residential appears from z13, footways from
+z15, so a zoomed-out city view draws main roads instead of smearing every path sub-pixel).
+`--no-report` gives the plain styled map, `--no-tiles` inline GeoJSON.
 
 Maps land in `viz/`, not `data/` — they are outputs, not data, so the two clean and sync
 independently. `-o` overrides.
@@ -161,17 +171,7 @@ boundaries belongs in the flatten stage.
 
 ### Report mode — click a road, see everything
 
-```bash
-duckoverture viz data/sodermalm.duckdb --report
-```
-
-```
-4,203 road segments  |  bridges 84 · tunnels 243 · levelled 303 · speed limits 965
-  report mode: 28 fields per road in the click panel
-wrote viz/sodermalm_report.html
-```
-
-Clicking a road docks a **side panel** of 23 fields — **every one a scalar**:
+The default (above); `--no-report` turns it off. Clicking a road docks a **side panel** of 23 fields — **every one a scalar**:
 
 ```
 segment_id           9ca6940d-4e06-43e0-bcdd-b8968b8b2fc4
@@ -179,25 +179,49 @@ class                secondary          name       Stadsgårdsleden
 maxspeed_kmh         30                 oneway     True
 surface              paved              length_m   1516.0
 layer                -1                 is_tunnel  true
-n_connectors         5                  routes     222
+turn_bans_here       0                  routes     222
 all_speed_limits     30                 flags      is_tunnel
 access               denied / denied / denied backward
 source_dataset       OpenStreetMap      overture_version  5
 ```
 
 Values come from `flat.segment`, so the panel and the styling agree — both use the dominant rule.
-Overture's nested columns are **summarised** rather than dumped: `connectors` → a count,
-`speed_limits` → the values joined (`"40 / 60"`), `road_flags` → the flag names. Bridge and
+Overture's nested columns are **summarised** rather than dumped: `speed_limits` → the values
+joined (`"40 / 60"`), `road_flags` → the flag names. There is deliberately no connector *count*:
+it was the parent segment's (a 2.6 m piece reported 39), so each piece instead names its own two
+junctions — `from_connector_id` / `to_connector_id`. Bridge and
 tunnel keep their `is_` prefix and stay BOOLEAN, matching `flat.segment` rather than roadstyle's
 default `'yes'`/null strings — `bridge_col` / `tunnel_col` are passed through so the
 grade-separation sandwich still works. A wall of
 `[{"connector_id":"a0c1c021-…"}]` is not a report.
 
-`--report` requires `duckoverture flatten` first; without it the panel would show `[1]`-derived
+After `flatten -m routing` (or `edges`) the report also carries a **Turn restrictions** layer —
+one dot per via junction, toggleable from the Layers control. The roads only show counts
+(`turn_bans_here`); the dot is where a ban reads as a sentence. Clicking it lists every ban at
+that junction in the side panel — road names plus the piece ids the router needs — **one
+clickable row per ban**: click a row and the map traces exactly that manoeuvre, the piece you
+come from **dark blue**, the banned target piece **dark red** (a U-turn ban is one piece — it
+reads red). The trace is deliberately dark: highsat's own fills are all bright, so the first
+amber/blue/red attempt disappeared against them — amber on an orange primary was invisible on
+the very junction that motivated the feature.
+The first ban traces automatically; clicking anywhere else clears the colours. One row per ban
+matters the moment a junction hosts two: painting them all at once puts four coloured pieces on
+screen with no way to pair them.
+
+**A ban is the whole chain, never a step.** A via-way restriction spans several junctions and
+only its *last* step is prohibited — the middle legs are driven legally. Shown step by step,
+Londonviadukten's 2-step ban read `Londonviadukten → Londonviadukten` at its first junction, as
+if continuing along the street were banned. So each restriction is folded into one row —
+`from → via… → banned target` — listed at **every** junction it crosses. The trace still paints
+only the ban's two ends (blue origin, red target); the via legs are context, named in the card
+(`U-turn across the median · via Östgötagatan`) rather than painted. Södermalm: 58 bans at 40
+junctions, U-turn bans showing as `X → X`.
+
+Report mode requires `duckoverture flatten` first; without it the panel would show `[1]`-derived
 values that contradict the map. Add `--raw` to append the untouched nested columns as JSON when
 the evidence behind a resolved value is what you want.
 
-Needs the extra: `pip install "duckoverture[viz]"`.
+Needs the extra: `pip install "duckoverture[viz]"` (includes the tile deps).
 
 ## Flatten
 
@@ -296,26 +320,38 @@ that touches `c` — and B is now several pieces, of which exactly one is the ma
 unresolved and a router either bans the whole road, hundreds of metres of it, or cannot apply the
 ban at all.
 
-`-m edges` renumbers both ends into `flat.turn_restriction`:
+`-m edges` renumbers both ends into `flat.turn_restriction` — **one row per restriction**:
 
 ```
-  flat.turn_restriction  54 transitions -> 54 renumbered onto pieces (58 steps)  0.0s
+  flat.turn_restriction  54 transitions -> 54 bans renumbered onto pieces (4 via a way)  0.0s
 ```
 
 ```
-from_piece_id     1227298b-…-d26b0a59a403#5     -- the edge you are on
-tr_no  seq_no     2  1                          -- 2-step (via-way) restriction, first step
-via_connector_id  ef18293a-…-d5853615801a       -- the junction crossed
-to_piece_id       aabe0b25-…-ffd69e2d1e9f#1     -- the edge banned  ← renumbered
-to_segment_id     aabe0b25-…-ffd69e2d1e9f       -- what Overture said, kept for traceability
+tr_id              5                            -- quotable handle ("ban 5"), shown on the map's
+                                                --   ban cards; identity & raw trace are the
+                                                --   (from_piece_id, tr_no) columns
+from_piece_id      1227298b-…-d26b0a59a403#3    -- the edge you are on
+via_type           piece                        -- what OSM's via member was:
+                                                --   connector (a node) | piece (way(s))
+via_id             aabe0b25-…-ffd69e2d1e9f#1    -- THE via: that connector, or the via piece
+via_piece_ids      [aabe0b25-…-ffd69e2d1e9f#1]  -- via legs in order (NULL for connector vias;
+via_segment_ids    [aabe0b25-…-ffd69e2d1e9f]    --   lists because OSM allows several via ways)
+via_connector_ids  [ef18293a-…, 1eb1ae2b-…]     -- every junction crossed, in order
+to_piece_id        207c6b31-…-0bffd535360b#1    -- the edge banned  ← renumbered
+to_segment_id      207c6b31-…-0bffd535360b      -- what Overture said, kept for traceability
 final_heading · when_heading · during · mode
 ```
 
-One row per step, so the common case is `seq_no = 1` and via-way restrictions carry the whole
-chain. `during` and `mode` travel with it — a restriction that only applies at rush hour must not
-read as absolute.
+A row is the whole manoeuvre — `from_piece_id` + `via_piece_ids` + `to_piece_id` — with `during`
+and `mode` travelling along: a restriction that only applies at rush hour must not read as
+absolute. `via_type = 'connector'` is the classic node-pivot turn ban (50 of Södermalm's 54,
+`via_id` = that connector); `'piece'` is the via-way form (`via_id` = the via piece; 4 here, all
+verified against their live OSM relations — three `no_u_turn` across a dual-carriageway median
+and one `no_left_turn`, e.g. [r8407604](https://osm.org/relation/8407604)). Routers must ban
+completing the whole chain, never the via legs alone — every other movement drives them legally.
 
-Against the official splitter: **58 steps vs 58, an exact multiset match** — same owner piece,
+Against the official splitter: **an exact multiset match on all 58 resolved steps** (the
+per-step crossings now fold into `via_connector_ids`) — same owner piece,
 same junction, same referenced piece, on every one. 26 of the 46 referenced segments are split
 into pieces (one into 15), so this is doing real work rather than passing ids through.
 
@@ -326,9 +362,13 @@ Chains that only partly resolve are **dropped**, as the official splitter drops 
 extract those are manoeuvres leaving the boundary. A partly-resolved chain is a guess, not a
 restriction.
 
+Column-by-column provenance — what is Overture's verbatim and what this tool derives, and by
+which resolution rule — is documented in
+[docs/turn_restrictions.md](docs/turn_restrictions.md).
+
 ## Known limits of the source data
 
-These are Overture's, not this tool's — `duckoverture` reports faithfully what the release
+These are Overture's, not this tool's — duckOverture reports faithfully what the release
 contains. They matter because they are invisible unless you look.
 
 ### Roundabouts lose their one-way ⚠️
@@ -456,6 +496,18 @@ There is no `lanes` column anywhere. `width_rules` gives metres, not a lane coun
 ### Attributes apply to ranges, not whole roads
 
 See [Flatten](#flatten) — this is handled, but it is why `flat.segment` exists at all.
+
+### No elevation, anywhere
+
+`road_flags` and `level_rules` say a segment is a bridge and how levels stack *relative to each
+other*, never a height in metres or a ground elevation. Buildings carry an optional `height`, but
+coverage swings wildly by area — 0.3% on Södermalm, 56% on Burnaby.
+
+Elevation is therefore paired in from a DEM, not extracted. Which DEM matters more than it looks:
+differencing two *independent* 30 m global products to get object heights put the "surface" below
+bare earth at 38% of Södermalm's road nodes. See [docs/elevation.md](docs/elevation.md) for sources
+(Canada's HRDEM ships a matched 1 m DTM/DSM pair), how to clip a working raster, and how to sample
+it onto a network with `duckosm elevation`.
 
 ## Install
 
