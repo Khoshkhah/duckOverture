@@ -256,8 +256,24 @@ def render(db: str | Path, out: str | Path, palette: str = "highsat",
         # every vertex at every zoom — which is the whole cost on a 30k-vertex network.
         kw["tiles"] = True
     if report:
-        log(f"  report mode: {len(g.columns) - 1} fields per road in the click panel")
-        kw.update(road_popup="all", popup_mode="panel", road_tooltip=["name", "class"])
+        # An explicit list, not road_popup="all". "all" sweeps up roadstyle's own post-hoc
+        # properties, and `twoway` among them is a RENDERING flag — "has a reverse twin to offset
+        # away from", which drives line-offset. Our rows are one per road, so it is always False
+        # and sat next to `oneway: False` reading as a contradiction. A list also fixes the field
+        # ORDER, which "all" leaves to column order.
+        fields = [c for c in g.columns if c != "geometry" and not c.startswith("__rs")]
+        order = ["segment_id", "piece_id", "class", "subclass", "name",
+                 "motor_access", "oneway", "direction", "maxspeed_kmh",
+                 "length_m", "level", "surface", "width_m",
+                 "is_bridge", "is_tunnel", "is_indoor", "is_covered", "is_link",
+                 "is_under_construction", "is_roundabout",
+                 "max_height_m", "max_weight_t", "turn_bans_here", "n_connectors"]
+        fields.sort(key=lambda c: (order.index(c) if c in order else len(order), c))
+        # `lvl` is roadstyle's resolved elevation, added after we hand the data over, so it is not
+        # in g.columns — name it anyway or the panel loses the only always-present grade number.
+        fields.append("lvl")
+        log(f"  report mode: {len(fields)} fields per road in the click panel")
+        kw.update(road_popup=fields, popup_mode="panel", road_tooltip=["name", "class"])
     else:
         # the default popup list names "bridge"/"tunnel", which no longer exist here
         kw.update(tooltip=["name", "class", "subclass", "maxspeed_kmh"],
