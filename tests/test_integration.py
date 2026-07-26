@@ -586,3 +586,20 @@ def test_indoor_is_not_tunnel(built):
     for f in ("is_bridge", "is_tunnel", "is_link", "is_indoor", "is_covered",
               "is_under_construction", "is_roundabout"):
         assert _q(out, f"SELECT count(*) FROM flat.segment WHERE {f} IS NULL")[0] == 0, f
+
+
+def test_direction_is_null_where_travel_is_unrestricted(built):
+    """`direction` may only speak where there is a restriction to describe.
+
+    It was 'forward' on every two-way road — 7,357 of 8,980 Södermalm rows — purely as the CASE
+    default, which reads as a fact and is not one. NULL means unrestricted, so a non-null value
+    always carries information. The rare non-default matters: a handful of pieces run 'backward',
+    i.e. travel goes from to_connector_id towards from_connector_id.
+    """
+    from duckoverture import flatten
+    out, _ = built
+    flatten(out, mode="routing", log=lambda *a: None)
+    assert _q(out, "SELECT count(*) FROM flat.segment WHERE oneway AND direction IS NULL")[0] == 0
+    assert _q(out, "SELECT count(*) FROM flat.segment WHERE NOT oneway AND direction IS NOT NULL")[0] == 0
+    assert set(_q(out, "SELECT list_sort(list_distinct(list(direction))) FROM flat.segment")[0]) \
+        <= {"forward", "backward"}

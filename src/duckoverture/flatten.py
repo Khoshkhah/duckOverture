@@ -135,6 +135,19 @@ def _motor_allowed(col: str) -> str:
 _NON_MOTOR = "('footway', 'steps', 'path', 'pedestrian', 'cycleway', 'bridleway')"
 
 
+def _oneway(col: str, have_rb: bool, ranged: bool) -> str:
+    """One-way = a heading-scoped denial for motor traffic, or a roundabout.
+
+    Factored out because `direction` has to ask the same question: it is only meaningful where
+    this is true, and the two drifting apart would leave a direction on an unrestricted road.
+    """
+    rb = _is_roundabout(_at_mid('sources'), have_rb) if ranged else _is_roundabout_dominant(have_rb)
+    return (f"""coalesce(len(list_filter({col},
+            x -> x.access_type = 'denied' AND x."when".heading IS NOT NULL
+                 AND (x."when".mode IS NULL OR list_has_any(x."when".mode, {_MOTOR_SQL})))) > 0,
+            FALSE) OR {rb}""")
+
+
 def _motor_access(col: str) -> str:
     """Can a car use this stretch: 'yes' | 'restricted' | 'no'.
 
@@ -282,8 +295,13 @@ SELECT
                                                 AS oneway,
     -- Overture drops junction=roundabout and the oneway it implies; recovered by way-id lookup.
     {_is_roundabout(_at_mid('sources'), have_rb)}   AS is_roundabout,
-    -- travel direction: 'backward' denied -> runs forward, and vice versa
-    CASE WHEN len(list_filter({_at_mid('access_restrictions')},
+    -- Which way travel runs, RELATIVE TO THE STORED GEOMETRY, and only where travel is
+    -- restricted at all. On a two-way road there is nothing to say: it was 'forward' on 7,357 of
+    -- 8,980 Södermalm rows purely as a default. NULL now means "unrestricted", so a non-null value
+    -- always carries information. Rare but load-bearing: 3 Södermalm pieces run 'backward', i.e.
+    -- from to_connector_id towards from_connector_id.
+    CASE WHEN NOT ({_oneway(_at_mid('access_restrictions'), have_rb, ranged=True)}) THEN NULL
+         WHEN len(list_filter({_at_mid('access_restrictions')},
               x -> x.access_type = 'denied' AND x."when".heading = 'forward'
                    AND (x."when".mode IS NULL OR list_has_any(x."when".mode, {_MOTOR_SQL})))) > 0
          THEN 'backward' ELSE 'forward' END     AS direction,
@@ -327,7 +345,8 @@ SELECT
              OR {_is_roundabout_dominant(have_rb)}
                                                 AS oneway,
     {_is_roundabout_dominant(have_rb)}          AS is_roundabout,
-    CASE WHEN len(list_filter(access_restrictions,
+    CASE WHEN NOT ({_oneway('access_restrictions', have_rb, ranged=False)}) THEN NULL
+         WHEN len(list_filter(access_restrictions,
               x -> x.access_type = 'denied' AND x."when".heading = 'forward'
                    AND (x."when".mode IS NULL OR list_has_any(x."when".mode, {_MOTOR_SQL})))) > 0
          THEN 'backward' ELSE 'forward' END     AS direction,
