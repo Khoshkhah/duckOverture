@@ -1,4 +1,4 @@
-"""duckoverture CLI."""
+"""duckOverture CLI."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -94,15 +94,16 @@ def roundabouts_cmd(db: Path, endpoint: str | None, timeout: int) -> None:
               help="roadstyle palette: highsat | carto | mono.")
 @click.option("--backend", default="web", show_default=True,
               help="roadstyle backend: web | folium | lonboard.")
-@click.option("--report", is_flag=True,
-              help="Inspection map: flat, resolved fields in a click-to-open side panel.")
+@click.option("--report/--no-report", default=True, show_default=True,
+              help="Inspection map: flat, resolved fields in a click-to-open side panel. "
+                   "--no-report for the plain styled map.")
 @click.option("--raw", is_flag=True,
-              help="With --report, also append the untouched nested columns as JSON.")
+              help="With report mode, also append the untouched nested columns as JSON.")
 @click.option("--drivable", is_flag=True,
               help="Only roads a car can use (motor_access <> 'no'). Needs flatten first.")
-@click.option("--tiles", is_flag=True,
+@click.option("--tiles/--no-tiles", default=True, show_default=True,
               help="Embed PMTiles vector tiles instead of inline GeoJSON — much smoother on "
-                   "large networks. Needs: pip install \"roadstyle[tiles]\".")
+                   "large networks. --no-tiles for plain inline GeoJSON.")
 def viz_cmd(db: Path, output: Path | None, palette: str, backend: str,
             report: bool, raw: bool, drivable: bool, tiles: bool) -> None:
     """Render an extract's road network to a self-contained HTML map.
@@ -110,8 +111,10 @@ def viz_cmd(db: Path, output: Path | None, palette: str, backend: str,
     Overture's `class` values are OSM-derived, so roadstyle styles them with no palette changes —
     bridge / tunnel / layer are unpacked from `road_flags` and `level_rules`.
 
-    With --report, every Overture column travels with the map and clicking a road docks a side
-    panel showing all of them; nested structs are rendered as JSON so they stay readable.
+    By default this is the full inspection map — report side panel, embedded PMTiles, per-class
+    zoom thinning. In report mode every Overture column travels with the map and clicking a road
+    docks a side panel showing all of them; nested structs are rendered as JSON so they stay
+    readable. `--no-report` for the plain styled map.
     """
     from .viz import default_output, render
     out = output or default_output(db)
