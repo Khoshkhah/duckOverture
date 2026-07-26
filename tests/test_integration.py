@@ -627,3 +627,20 @@ def test_flat_connector_covers_every_node_including_synthetic(built):
     # degree counts edge-ends, so it must equal twice the edge count
     n_ends = _q(out, "SELECT sum(degree) FROM flat.connector")[0]
     assert n_ends == 2 * _q(out, "SELECT count(*) FROM flat.segment")[0]
+
+
+def test_cuts_land_where_overture_says(built):
+    """Overture's `at` is a fraction of GEODESIC length; ST_LineSubstring measures degree-space.
+
+    Feeding one to the other put cuts up to 88 m from where they belong — 694 connector refs 5-25 m
+    out and 63 beyond 25 m on Södermalm. The length-conservation check cannot see this: summing a
+    segment's pieces reconstructs the segment wherever the cuts land.
+    """
+    from duckoverture import flatten
+    out, _ = built
+    flatten(out, mode="routing", log=lambda *a: None)
+    worst = _q(out, """
+        SELECT coalesce(max(ST_Distance_Sphere(ST_FlipCoordinates(f.geometry),
+                                               ST_FlipCoordinates(k.geometry))), 0)
+        FROM flat.connector f JOIN transportation.connector k ON k.id = f.connector_id""")[0]
+    assert worst < 1.0, f"worst node is {worst:.1f} m out — the geodesic LR conversion is not applied"

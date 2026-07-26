@@ -250,14 +250,46 @@ conns AS (
 resolved_conns AS (
     SELECT s.*, coalesce(c.conns, []) AS conns FROM src s LEFT JOIN conns c ON c.id = s.id),
 breaks AS (SELECT *, {_breakpoints(connectors)} AS bp FROM resolved_conns),
+-- Overture's linear references are fractions of GEODESIC length; ST_LineSubstring measures
+-- fraction of 2D degree-space length. At 59N a degree of longitude is ~0.51 of a degree of
+-- latitude in metres, so feeding one to the other puts cuts up to 88 m from where they belong.
+-- Walk the vertices once per segment, accumulate both measures, and convert. Within a leg the
+-- two are linear in the same direction, so the mapping is exact to the leg.
+verts AS (
+    SELECT b.id, u.i::INTEGER AS i,
+           ST_Distance(ST_PointN(b.geometry, u.i::INTEGER),
+                       ST_PointN(b.geometry, (u.i + 1)::INTEGER)) AS d2,
+           ST_Distance_Sphere(ST_FlipCoordinates(ST_PointN(b.geometry, u.i::INTEGER)),
+                              ST_FlipCoordinates(ST_PointN(b.geometry, (u.i + 1)::INTEGER))) AS dg
+    FROM breaks b, UNNEST(range(1, ST_NumPoints(b.geometry))) AS u(i)),
+cum AS (
+    SELECT id, i, d2, dg,
+           sum(d2) OVER w - d2 AS c2, sum(dg) OVER w - dg AS cg,
+           sum(d2) OVER (PARTITION BY id) AS t2, sum(dg) OVER (PARTITION BY id) AS tg
+    FROM verts WINDOW w AS (PARTITION BY id ORDER BY i)),
+bp2d AS (
+    SELECT id, k, lr2 FROM (
+        SELECT b.id, u.i AS k,
+               coalesce((c.c2 + CASE WHEN c.dg = 0 THEN 0
+                                     ELSE (b.bp[u.i] * c.tg - c.cg) / c.dg END * c.d2)
+                        / nullif(c.t2, 0), b.bp[u.i]) AS lr2,
+               row_number() OVER (PARTITION BY b.id, u.i ORDER BY c.i) AS rn
+        FROM breaks b, UNNEST(range(1, len(b.bp) + 1)) AS u(i)
+        JOIN cum c ON c.id = b.id
+          AND b.bp[u.i] * c.tg >= c.cg - 1e-9
+          AND b.bp[u.i] * c.tg <= c.cg + c.dg + 1e-9)
+    WHERE rn = 1),
 pieces AS (
     SELECT b.*, u.i AS piece_no, b.bp[u.i] AS start_lr, b.bp[u.i + 1] AS end_lr,
+           s2.lr2 AS start_2d, e2.lr2 AS end_2d,
            (b.bp[u.i] + b.bp[u.i + 1]) / 2 AS mid
     FROM breaks b, UNNEST(range(1, len(b.bp))) AS u(i)
+    JOIN bp2d s2 ON s2.id = b.id AND s2.k = u.i
+    JOIN bp2d e2 ON e2.id = b.id AND e2.k = u.i + 1
 )
 SELECT
     id                                          AS segment_id,
-    piece_no, start_lr, end_lr, geometry, conns,
+    piece_no, start_lr, end_lr, start_2d, end_2d, geometry, conns,
     (end_lr - start_lr) * {_len()} AS piece_m,
     class                                       AS "class",
     -- from subclass_rules, NOT Overture's scalar `subclass`: that one is only set when
@@ -432,9 +464,9 @@ SELECT
     coalesce({conn_at.format(lr='max(end_lr)')},
              segment_id || '@' || max(end_lr))   AS to_connector_id,
     {", ".join(f"any_value({c}) AS {c}" for c in _ATTRS)},
-    {_len('ST_LineSubstring(any_value(geometry), min(start_lr), max(end_lr))')}
+    {_len('ST_LineSubstring(any_value(geometry), min(start_2d), max(end_2d))')}
                                                 AS length_m,
-    ST_LineSubstring(any_value(geometry), min(start_lr), max(end_lr))
+    ST_LineSubstring(any_value(geometry), min(start_2d), max(end_2d))
                                                 AS geometry
 FROM runs
 GROUP BY segment_id, run_no
@@ -593,12 +625,13 @@ def flatten(db: str | Path, mode: str = "segment", log=print) -> dict[str, int]:
                                                     ST_FlipCoordinates(k.geometry))), 0)
             FROM flat.connector f JOIN transportation.connector k ON k.id = f.connector_id
             """).fetchone()[0]
-        if drift > 0.01:
-            # Expected until the LR parameterisation is fixed: Overture's `at` is a fraction of
-            # GEODESIC length, ST_LineSubstring cuts by 2D degree-space fraction, and at 59N those
-            # diverge. See docs/design/lr_parameterisation.md.
-            log(f"  NOTE: worst node sits {drift:.1f} m from Overture's connector "
-                f"(LR parameterisation, see docs/design/lr_parameterisation.md)")
+        # A sub-metre residual is inherent: within one leg the geodesic-to-planar mapping is
+        # linear in the same direction but not identically scaled, so a long leg keeps a few
+        # centimetres. Anything beyond a metre means the LR conversion is not being applied.
+        if drift > 1.0:
+            log(f"  WARNING: worst node sits {drift:.1f} m from Overture's connector — "
+                f"the geodesic LR conversion is not being applied "
+                f"(docs/design/lr_parameterisation.md)")
 
     # Turn restrictions reference whole segments, so they only mean anything once the pieces have
     # junctions to hang off — the two connector-aware modes.

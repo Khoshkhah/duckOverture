@@ -1,6 +1,27 @@
 # Cuts land in the wrong place: `at` is geodesic, `ST_LineSubstring` is not
 
-**Status:** proposed, not implemented. Found 2026-07-25 while validating `flat.connector`.
+**Status:** **IMPLEMENTED** 2026-07-25, approach A. Found while validating `flat.connector`.
+
+## Result
+
+Node positions against Overture's own connector geometry, Södermalm:
+
+| error | before | after |
+|---|---:|---:|
+| < 1 cm | — | **5,235** |
+| 1–10 cm | — | 631 |
+| 10 cm – 1 m | — | 29 |
+| 5–25 m | 694 | **0** |
+| > 25 m | 63 (worst 88.7 m) | **0** |
+
+Worst case 88.1 m -> 0.3 m. The sub-metre residual is inherent to approach A: within a single leg
+the geodesic and planar parameterisations are linear in the same direction but not identically
+scaled, so a long leg keeps a few centimetres. Removing that would mean subdividing legs, which
+buys nothing a router can use.
+
+Row counts are unchanged and splitter parity still holds exactly — 10,167 = 10,167 — as predicted,
+because that comparison is on `start_lr` values, which are Overture-semantic either way. Total
+length is unchanged at 290,590 m.
 
 ## Problem
 
