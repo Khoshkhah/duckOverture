@@ -1,0 +1,215 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 240" width="100%" height="100%">
+  <defs>
+    <!-- Gradients -->
+    <linearGradient id="duckGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF176"/>
+      <stop offset="50%" stop-color="#FFD54F"/>
+      <stop offset="100%" stop-color="#FF9800"/>
+    </linearGradient>
+
+    <linearGradient id="duckBeak" x1="0%" y1="0%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#FFCA28"/>
+      <stop offset="100%" stop-color="#F57C00"/>
+    </linearGradient>
+
+    <!-- Overture Maps Brand Gradients -->
+    <linearGradient id="ovPurple" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#C084FC"/>
+      <stop offset="50%" stop-color="#9333EA"/>
+      <stop offset="100%" stop-color="#6B21A8"/>
+    </linearGradient>
+
+    <linearGradient id="ovMagenta" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F472B6"/>
+      <stop offset="50%" stop-color="#E11D48"/>
+      <stop offset="100%" stop-color="#9F1239"/>
+    </linearGradient>
+
+    <linearGradient id="ovCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#0284C7"/>
+    </linearGradient>
+
+    <linearGradient id="ovIndigo" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#818CF8"/>
+      <stop offset="100%" stop-color="#4F46E5"/>
+    </linearGradient>
+
+    <linearGradient id="textGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#C084FC"/>
+      <stop offset="50%" stop-color="#E879F9"/>
+      <stop offset="100%" stop-color="#38BDF8"/>
+    </linearGradient>
+
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B0D1B"/>
+      <stop offset="50%" stop-color="#111427"/>
+      <stop offset="100%" stop-color="#070913"/>
+    </linearGradient>
+
+    <!-- Glow Filters -->
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <filter id="intenseGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background Card -->
+  <rect width="800" height="240" rx="16" fill="url(#bgGrad)" stroke="#1E2342" stroke-width="1.5"/>
+
+  <!-- Subtle Isometric GeoParquet Grid Mesh -->
+  <g opacity="0.07" stroke="#A855F7" stroke-width="1" fill="none">
+    <path d="M 40 180 L 140 120 L 240 180 L 140 240 Z"/>
+    <path d="M 140 120 L 240 60 L 340 120 L 240 180 Z"/>
+    <path d="M 40 120 L 140 60 L 240 120 L 140 180 Z"/>
+    <path d="M 140 60 L 240 0 L 340 60 L 240 120 Z"/>
+  </g>
+
+  <!-- Ambient Purple Light behind mascot -->
+  <circle cx="150" cy="120" r="90" fill="#9333EA" opacity="0.08" filter="url(#intenseGlow)"/>
+
+  <!-- Left Side: Dimensional Layered Overture Duck -->
+  <g transform="translate(15, 0)">
+    <!-- LAYER 1 (Base Map & Parquet Plane) - Deep Violet / Indigo -->
+    <g id="layer-base" opacity="0.85">
+      <path d="M 68 168 L 115 186 L 165 182 L 202 160 L 175 148 L 125 152 L 85 154 Z"
+            fill="url(#ovIndigo)" opacity="0.25"/>
+      <path d="M 68 168 L 115 186 L 165 182 L 202 160"
+            fill="none" stroke="url(#ovIndigo)" stroke-width="2.5" stroke-linejoin="round"/>
+      <!-- Columnar Parquet data grid facets -->
+      <line x1="115" y1="186" x2="125" y2="152" stroke="#6366F1" stroke-width="1.2" stroke-dasharray="3 3"/>
+      <line x1="165" y1="182" x2="175" y2="148" stroke="#6366F1" stroke-width="1.2" stroke-dasharray="3 3"/>
+      <circle cx="68" cy="168" r="3" fill="#818CF8"/>
+      <circle cx="115" cy="186" r="3.5" fill="#818CF8"/>
+      <circle cx="165" cy="182" r="3.5" fill="#818CF8"/>
+      <circle cx="202" cy="160" r="3" fill="#818CF8"/>
+    </g>
+
+    <!-- LAYER 2 (Buildings & Polygons Theme) - Vivid Purple / Magenta 3D Facets -->
+    <g id="layer-buildings">
+      <!-- 3D Isometric Building Block 1 -->
+      <path d="M 125 125 L 145 113 L 165 125 L 145 137 Z" fill="#C084FC" opacity="0.3"/>
+      <path d="M 125 125 L 145 137 L 145 150 L 125 138 Z" fill="#9333EA" opacity="0.5"/>
+      <path d="M 145 137 L 165 125 L 165 138 L 145 150 Z" fill="#7E22CE" opacity="0.6"/>
+
+      <!-- 3D Building Block 2 (Tail contour) -->
+      <path d="M 90 138 L 110 126 L 125 135 L 105 147 Z" fill="#E879F9" opacity="0.35"/>
+      <path d="M 90 138 L 105 147 L 105 158 L 90 149 Z" fill="#C026D3" opacity="0.55"/>
+      <path d="M 105 147 L 125 135 L 125 146 L 105 158 Z" fill="#A21CAF" opacity="0.65"/>
+    </g>
+
+    <!-- LAYER 3 (Transportation & Routing Highway Networks) - Glowing Cyan & Gold -->
+    <g id="layer-transportation">
+      <!-- Highway Arcs forming Duck Body Contour -->
+      <path d="M 135 108 L 100 125 L 75 148 L 105 168 L 152 165 L 188 145 L 195 115 L 168 118"
+            fill="none" stroke="url(#ovPurple)" stroke-width="2.5" stroke-linejoin="round"/>
+
+      <!-- Express Parquet Vector Route (DuckDB High-Speed Acceleration) -->
+      <path d="M 75 148 L 118 136 L 162 140 L 195 115"
+            fill="none" stroke="url(#duckGold)" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 3" filter="url(#softGlow)"/>
+
+      <!-- Cross connectors (Overture Segments) -->
+      <path d="M 100 125 L 118 136 L 105 168" fill="none" stroke="url(#ovCyan)" stroke-width="1.8"/>
+      <path d="M 135 108 L 118 136 L 152 165" fill="none" stroke="url(#ovMagenta)" stroke-width="1.8"/>
+      <path d="M 168 118 L 162 140 L 152 165" fill="none" stroke="url(#ovCyan)" stroke-width="1.8"/>
+
+      <!-- Directional Arrowhead -->
+      <polygon points="112,134 122,136 115,142" fill="#FFD54F"/>
+      <polygon points="172,126 180,122 178,131" fill="#FFD54F"/>
+
+      <!-- Streamlined Wing/Tail Connectors -->
+      <path d="M 75 148 L 46 142 C 43 141, 44 137, 48 137 L 70 138" fill="none" stroke="url(#ovMagenta)" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M 68 154 L 40 151 C 37 150, 39 146, 43 147 L 66 151" fill="none" stroke="url(#ovPurple)" stroke-width="2" stroke-linecap="round"/>
+    </g>
+
+    <!-- HEAD & BEAK -->
+    <g id="duck-head">
+      <!-- Neck & Head Polygon Frame -->
+      <path d="M 148 48 L 172 60 L 190 68 L 175 90 L 142 78 Z"
+            fill="none" stroke="url(#ovCyan)" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M 148 48 L 132 70 L 142 78 L 135 108"
+            fill="none" stroke="url(#ovCyan)" stroke-width="2"/>
+      <path d="M 175 90 L 168 118 L 135 108"
+            fill="none" stroke="url(#ovPurple)" stroke-width="2.5"/>
+
+      <!-- Golden DuckDB Beak -->
+      <path d="M 192 66 L 245 72 C 248 73, 248 77, 244 80 L 195 92 Z"
+            fill="url(#duckBeak)" stroke="#FFB300" stroke-width="1.5" stroke-linejoin="round"/>
+      <circle cx="218" cy="75" r="1.5" fill="#B26A00"/>
+      <path d="M 195 80 L 235 79" stroke="#FF8F00" stroke-width="1.5" stroke-linecap="round"/>
+
+      <!-- Eye (Spatial Waypoint Node) -->
+      <circle cx="172" cy="60" r="5" fill="#0B0D1B" stroke="#FFF" stroke-width="2"/>
+      <circle cx="172" cy="60" r="2.5" fill="#C084FC"/>
+
+      <!-- Head Vertices & Glowing Connectors -->
+      <circle cx="148" cy="48" r="3.5" fill="#FFF" filter="url(#softGlow)"/>
+      <circle cx="132" cy="70" r="3" fill="#38BDF8"/>
+      <circle cx="142" cy="78" r="3" fill="#E879F9"/>
+      <circle cx="175" cy="90" r="3.5" fill="#C084FC"/>
+      <circle cx="135" cy="108" r="4" fill="#FFD54F" filter="url(#softGlow)"/>
+      <circle cx="168" cy="118" r="4" fill="#38BDF8" filter="url(#softGlow)"/>
+      <circle cx="195" cy="115" r="3.5" fill="#E879F9"/>
+      <circle cx="100" cy="125" r="3.5" fill="#38BDF8"/>
+      <circle cx="118" cy="136" r="4.5" fill="#FFC107" filter="url(#softGlow)"/>
+      <circle cx="162" cy="140" r="4" fill="#FFD54F" filter="url(#softGlow)"/>
+      <circle cx="188" cy="145" r="3" fill="#C084FC"/>
+      <circle cx="75" cy="148" r="4" fill="#F472B6" filter="url(#softGlow)"/>
+      <circle cx="105" cy="168" r="3.5" fill="#38BDF8"/>
+      <circle cx="152" cy="165" r="3.5" fill="#A855F7"/>
+    </g>
+  </g>
+
+  <!-- Right Side: Typography & Technology Badges -->
+  <g transform="translate(290, 52)">
+    <!-- Main Title: duckOverture -->
+    <text x="0" y="58" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="52" font-weight="800" letter-spacing="-1">
+      <tspan fill="#F8FAFC">duck</tspan>
+      <tspan fill="url(#textGrad)">Overture</tspan>
+    </text>
+
+    <!-- Subtitle / Tagline -->
+    <text x="2" y="92" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="15.5" font-weight="500" fill="#94A3B8" letter-spacing="0.2">
+      High-performance Overture Maps pipeline built on DuckDB
+    </text>
+
+    <!-- Badges / Tech Highlights -->
+    <g transform="translate(2, 114)">
+      <!-- Badge 1: DuckDB -->
+      <g transform="translate(0, 0)">
+        <rect width="100" height="26" rx="6" fill="#181B34" stroke="#2B315B" stroke-width="1"/>
+        <circle cx="14" cy="13" r="4.5" fill="#FFD54F"/>
+        <text x="25" y="17" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">DuckDB</text>
+      </g>
+
+      <!-- Badge 2: Overture Maps -->
+      <g transform="translate(108, 0)">
+        <rect width="135" height="26" rx="6" fill="#181B34" stroke="#2B315B" stroke-width="1"/>
+        <circle cx="14" cy="13" r="4.5" fill="#C084FC"/>
+        <text x="25" y="17" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">Overture Maps</text>
+      </g>
+
+      <!-- Badge 3: GeoParquet -->
+      <g transform="translate(251, 0)">
+        <rect width="112" height="26" rx="6" fill="#181B34" stroke="#2B315B" stroke-width="1"/>
+        <circle cx="14" cy="13" r="4.5" fill="#38BDF8"/>
+        <text x="25" y="17" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">GeoParquet</text>
+      </g>
+
+      <!-- Badge 4: GERS Index -->
+      <g transform="translate(371, 0)">
+        <rect width="90" height="26" rx="6" fill="#181B34" stroke="#2B315B" stroke-width="1"/>
+        <circle cx="14" cy="13" r="4.5" fill="#F472B6"/>
+        <text x="25" y="17" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">GERS ID</text>
+      </g>
+    </g>
+  </g>
+</svg>

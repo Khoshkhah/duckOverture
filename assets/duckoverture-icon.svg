@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Radial -->
+    <radialGradient id="iconBg" cx="50%" cy="35%" r="75%">
+      <stop offset="0%" stop-color="#191D38"/>
+      <stop offset="60%" stop-color="#0F1224"/>
+      <stop offset="100%" stop-color="#070812"/>
+    </radialGradient>
+
+    <!-- Beak Gradient -->
+    <linearGradient id="beakGrad" x1="0%" y1="0%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#FFD54F"/>
+      <stop offset="100%" stop-color="#FF8F00"/>
+    </linearGradient>
+
+    <!-- Theme Gradients -->
+    <linearGradient id="ovPurple" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#C084FC"/>
+      <stop offset="100%" stop-color="#7E22CE"/>
+    </linearGradient>
+
+    <linearGradient id="ovCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#0284C7"/>
+    </linearGradient>
+
+    <linearGradient id="ovMagenta" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F472B6"/>
+      <stop offset="100%" stop-color="#BE185D"/>
+    </linearGradient>
+
+    <linearGradient id="ovGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF176"/>
+      <stop offset="100%" stop-color="#FFA000"/>
+    </linearGradient>
+
+    <!-- Glow Filter -->
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <filter id="ambientGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Container Squircle / Rounded Card -->
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#iconBg)" stroke="#2B315B" stroke-width="2.5"/>
+  <rect x="20" y="20" width="472" height="472" rx="104" fill="none" stroke="#A855F7" stroke-width="1.2" opacity="0.3"/>
+
+  <!-- Isometric GeoParquet Grid Mesh Background -->
+  <g opacity="0.08" stroke="#A855F7" stroke-width="1.5" fill="none">
+    <path d="M 256 70 L 376 140 L 256 210 L 136 140 Z"/>
+    <path d="M 256 210 L 376 280 L 256 350 L 136 280 Z"/>
+    <path d="M 376 140 L 496 210 L 376 280 L 256 210 Z"/>
+    <path d="M 136 140 L 256 210 L 136 280 L 16 210 Z"/>
+  </g>
+
+  <!-- Ambient Purple Light Behind Duck -->
+  <circle cx="270" cy="235" r="140" fill="#9333EA" opacity="0.08" filter="url(#ambientGlow)"/>
+
+  <!-- The duckOverture Mascot: Layered Spatial Duck -->
+  <g id="duck-mascot" transform="translate(10, -8)">
+    <!-- Base Layer: Foundation Map & Columnar Parquet Grid -->
+    <g id="base-layer" opacity="0.8">
+      <path d="M 125 350 L 195 385 L 290 375 L 365 330 L 325 305 L 235 320 L 155 322 Z"
+            fill="#6366F1" opacity="0.2"/>
+      <path d="M 125 350 L 195 385 L 290 375 L 365 330"
+            fill="none" stroke="#6366F1" stroke-width="3" stroke-linejoin="round"/>
+      <circle cx="125" cy="350" r="4.5" fill="#818CF8"/>
+      <circle cx="195" cy="385" r="5" fill="#818CF8"/>
+      <circle cx="290" cy="375" r="5" fill="#818CF8"/>
+      <circle cx="365" cy="330" r="4.5" fill="#818CF8"/>
+    </g>
+
+    <!-- Middle Layer: 3D Isometric Buildings & Places Facets -->
+    <g id="buildings-layer">
+      <!-- 3D Isometric Building Block 1 -->
+      <path d="M 220 270 L 255 248 L 290 270 L 255 292 Z" fill="#C084FC" opacity="0.35"/>
+      <path d="M 220 270 L 255 292 L 255 315 L 220 293 Z" fill="#9333EA" opacity="0.6"/>
+      <path d="M 255 292 L 290 270 L 290 293 L 255 315 Z" fill="#7E22CE" opacity="0.75"/>
+
+      <!-- 3D Building Block 2 -->
+      <path d="M 160 295 L 195 273 L 225 290 L 190 312 Z" fill="#E879F9" opacity="0.35"/>
+      <path d="M 160 295 L 190 312 L 190 332 L 160 315 Z" fill="#C026D3" opacity="0.6"/>
+      <path d="M 190 312 L 225 290 L 225 310 L 190 332 Z" fill="#A21CAF" opacity="0.75"/>
+    </g>
+
+    <!-- Top Layer: Golden DuckDB Beak -->
+    <path d="M 335 155 L 428 170 C 435 171, 436 179, 429 184 L 340 205 Z" 
+          fill="url(#beakGrad)" stroke="#FFA000" stroke-width="2.5" stroke-linejoin="round"/>
+    <circle cx="388" cy="174" r="2.8" fill="#B26A00"/>
+    <path d="M 342 184 L 412 181" stroke="#FF8F00" stroke-width="2" stroke-linecap="round"/>
+
+    <!-- Head & Neck Contour & Network -->
+    <path d="M 265 110 L 305 138 L 335 155 L 315 200 L 255 180 Z" 
+          fill="none" stroke="url(#ovCyan)" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M 265 110 L 235 155 L 255 180 L 245 235" 
+          fill="none" stroke="url(#ovCyan)" stroke-width="4"/>
+    <path d="M 315 200 L 305 260 L 245 235" 
+          fill="none" stroke="url(#ovPurple)" stroke-width="4.5"/>
+
+    <!-- Eye (Spatial Waypoint Node) -->
+    <circle cx="305" cy="138" r="9" fill="#0B0D1B" stroke="#FFF" stroke-width="3"/>
+    <circle cx="305" cy="138" r="4.5" fill="#C084FC"/>
+
+    <!-- Duck Body Outer Highway Arc -->
+    <path d="M 245 235 L 175 270 L 135 320 L 195 365 L 275 360 L 345 315 L 360 250 L 305 260" 
+          fill="none" stroke="url(#ovPurple)" stroke-width="4.5" stroke-linejoin="round"/>
+
+    <!-- Golden Shortcut Line (DuckDB High-Performance Vector) -->
+    <path d="M 135 320 L 215 295 L 295 305 L 360 250" 
+          fill="none" stroke="url(#ovGold)" stroke-width="5.5" stroke-linecap="round" stroke-dasharray="14 6" filter="url(#softGlow)"/>
+
+    <!-- Transportation Connectors -->
+    <path d="M 175 270 L 215 295 L 195 365" fill="none" stroke="url(#ovCyan)" stroke-width="3.5"/>
+    <path d="M 245 235 L 215 295 L 275 360" fill="none" stroke="url(#ovMagenta)" stroke-width="3.5"/>
+    <path d="M 305 260 L 295 305 L 275 360" fill="none" stroke="url(#ovCyan)" stroke-width="3.5"/>
+    <path d="M 305 260 L 345 315" fill="none" stroke="url(#ovPurple)" stroke-width="3.5"/>
+
+    <!-- Tail Streamlines -->
+    <path d="M 135 320 L 75 305 C 70 304, 72 298, 78 298 L 125 300" fill="none" stroke="url(#ovMagenta)" stroke-width="4" stroke-linecap="round"/>
+    <path d="M 120 330 L 62 325 C 58 324, 60 318, 66 319 L 115 327" fill="none" stroke="url(#ovPurple)" stroke-width="3.5" stroke-linecap="round"/>
+
+    <!-- Directional Navigation Arrows -->
+    <polygon points="208,291 222,295 212,304" fill="#FFD54F"/>
+    <polygon points="318,279 332,272 328,288" fill="#FFD54F"/>
+
+    <!-- Glowing Network Nodes -->
+    <circle cx="265" cy="110" r="6" fill="#FFF" filter="url(#softGlow)"/>
+    <circle cx="235" cy="155" r="5" fill="#38BDF8"/>
+    <circle cx="255" cy="180" r="5" fill="#F472B6"/>
+    <circle cx="315" cy="200" r="6" fill="#C084FC"/>
+    <circle cx="245" cy="235" r="7" fill="#FFD54F" filter="url(#softGlow)"/>
+    <circle cx="305" cy="260" r="7" fill="#38BDF8" filter="url(#softGlow)"/>
+    <circle cx="360" cy="250" r="6" fill="#E879F9"/>
+    <circle cx="175" cy="270" r="6" fill="#38BDF8"/>
+    <circle cx="215" cy="295" r="8" fill="#FFC107" filter="url(#softGlow)"/>
+    <circle cx="295" cy="305" r="7.5" fill="#FFD54F" filter="url(#softGlow)"/>
+    <circle cx="345" cy="315" r="5.5" fill="#C084FC"/>
+    <circle cx="135" cy="320" r="7.5" fill="#F472B6" filter="url(#softGlow)"/>
+    <circle cx="195" cy="365" r="6" fill="#38BDF8"/>
+    <circle cx="275" cy="360" r="6.5" fill="#A855F7"/>
+  </g>
+
+  <!-- Bottom Brand Mark: duckOverture -->
+  <g transform="translate(256, 442)">
+    <text text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="34" font-weight="900" letter-spacing="-0.5">
+      <tspan fill="#F8FAFC">duck</tspan>
+      <tspan fill="url(#ovPurple)">Overture</tspan>
+    </text>
+  </g>
+</svg>

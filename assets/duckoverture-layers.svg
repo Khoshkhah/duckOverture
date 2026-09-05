@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 480" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgIso" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090B18"/>
+      <stop offset="50%" stop-color="#11152E"/>
+      <stop offset="100%" stop-color="#070814"/>
+    </linearGradient>
+
+    <linearGradient id="glassTop" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284C7" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#06B6D4" stop-opacity="0.08"/>
+    </linearGradient>
+
+    <linearGradient id="glassMid" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#D946EF" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#8B5CF6" stop-opacity="0.08"/>
+    </linearGradient>
+
+    <linearGradient id="glassBase" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366F1" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#4338CA" stop-opacity="0.08"/>
+    </linearGradient>
+
+    <linearGradient id="duckBeakIso" x1="0%" y1="0%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#FFD54F"/>
+      <stop offset="100%" stop-color="#FF8F00"/>
+    </linearGradient>
+
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="780" height="480" rx="20" fill="url(#bgIso)" stroke="#1E2342" stroke-width="1.5"/>
+
+  <!-- Subtle connecting axis lines between planes -->
+  <g stroke="#334155" stroke-width="1.2" stroke-dasharray="4 4">
+    <line x1="160" y1="340" x2="160" y2="140"/>
+    <line x1="480" y1="340" x2="480" y2="140"/>
+    <line x1="320" y1="410" x2="320" y2="210"/>
+    <line x1="320" y1="270" x2="320" y2="70"/>
+  </g>
+
+  <!-- LAYER 1 (BOTTOM): Base & Parquet Engine (y offset +140) -->
+  <g id="iso-layer-base">
+    <!-- Isometric Plane -->
+    <polygon points="320,270 480,340 320,410 160,340" fill="url(#glassBase)" stroke="#6366F1" stroke-width="1.5"/>
+    <text x="495" y="345" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="700" fill="#818CF8">BASE / GEOPARQUET</text>
+
+    <!-- Parquet Table Partitions -->
+    <path d="M 240,305 L 400,375" stroke="#4F46E5" stroke-width="1" stroke-dasharray="3 3"/>
+    <path d="M 280,287 L 440,357" stroke="#4F46E5" stroke-width="1" stroke-dasharray="3 3"/>
+    <path d="M 240,375 L 400,305" stroke="#4F46E5" stroke-width="1" stroke-dasharray="3 3"/>
+    <polygon points="320,325 360,342 320,360 280,342" fill="#4338CA" opacity="0.4"/>
+  </g>
+
+  <!-- LAYER 2 (MIDDLE): Buildings & Places (y offset +70) -->
+  <g id="iso-layer-buildings">
+    <!-- Isometric Plane -->
+    <polygon points="320,170 480,240 320,310 160,240" fill="url(#glassMid)" stroke="#A855F7" stroke-width="1.5"/>
+    <text x="495" y="245" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="700" fill="#C084FC">BUILDINGS &amp; PLACES</text>
+
+    <!-- 3D Extruded Buildings -->
+    <!-- Building 1 -->
+    <polygon points="270,225 300,212 300,197 270,210" fill="#C026D3" opacity="0.8"/>
+    <polygon points="300,212 330,225 330,210 300,197" fill="#9333EA" opacity="0.9"/>
+    <polygon points="270,210 300,197 330,210 300,223" fill="#E879F9" opacity="0.8"/>
+
+    <!-- Building 2 -->
+    <polygon points="340,245 365,234 365,224 340,235" fill="#C026D3" opacity="0.8"/>
+    <polygon points="365,234 390,245 390,235 365,224" fill="#9333EA" opacity="0.9"/>
+    <polygon points="340,235 365,224 390,235 365,246" fill="#E879F9" opacity="0.8"/>
+  </g>
+
+  <!-- LAYER 3 (TOP): Transportation & Routing Networks (y offset 0) -->
+  <g id="iso-layer-transport">
+    <!-- Isometric Plane -->
+    <polygon points="320,70 480,140 320,210 160,140" fill="url(#glassTop)" stroke="#06B6D4" stroke-width="1.8"/>
+    <text x="495" y="145" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="700" fill="#38BDF8">TRANSPORTATION</text>
+
+    <!-- Glowing Vector Road Networks on Top Plane -->
+    <path d="M 200,158 L 270,127 L 350,162 L 430,127" fill="none" stroke="#38BDF8" stroke-width="2.5" filter="url(#glow)"/>
+    <path d="M 270,127 L 310,180 L 390,145" fill="none" stroke="#F472B6" stroke-width="2"/>
+    <path d="M 220,135 L 320,105 L 410,145" fill="none" stroke="#FFD54F" stroke-width="2.5" stroke-dasharray="6 3" filter="url(#glow)"/>
+
+    <!-- Routing Nodes -->
+    <circle cx="270" cy="127" r="4.5" fill="#FFF" filter="url(#glow)"/>
+    <circle cx="310" cy="180" r="4.5" fill="#38BDF8"/>
+    <circle cx="350" cy="162" r="5" fill="#FFD54F" filter="url(#glow)"/>
+    <circle cx="390" cy="145" r="4" fill="#F472B6"/>
+  </g>
+
+  <!-- The duckOverture Mascot Overlaid & Emerging -->
+  <g transform="translate(180, 20) scale(0.65)">
+    <!-- Golden DuckDB Beak -->
+    <path d="M 315 115 L 408 130 C 415 131, 416 139, 409 144 L 320 165 Z" 
+          fill="url(#duckBeakIso)" stroke="#FFA000" stroke-width="3" stroke-linejoin="round"/>
+    <circle cx="368" cy="134" r="3.5" fill="#B26A00"/>
+    <path d="M 322 144 L 392 141" stroke="#FF8F00" stroke-width="2.5" stroke-linecap="round"/>
+
+    <!-- Head & Neck -->
+    <path d="M 245 70 L 285 98 L 315 115 L 295 160 L 235 140 Z" 
+          fill="none" stroke="#38BDF8" stroke-width="4.5" stroke-linejoin="round"/>
+    <circle cx="285" cy="98" r="9" fill="#0B0D1B" stroke="#FFF" stroke-width="3.5"/>
+    <circle cx="285" cy="98" r="4.5" fill="#C084FC"/>
+
+    <!-- Head Vertices -->
+    <circle cx="245" cy="70" r="6" fill="#FFF" filter="url(#glow)"/>
+    <circle cx="315" cy="115" r="5" fill="#38BDF8"/>
+    <circle cx="295" cy="160" r="6" fill="#E879F9"/>
+  </g>
+
+  <!-- Title & Subtitle at Bottom -->
+  <g transform="translate(40, 442)">
+    <text font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" font-weight="800">
+      <tspan fill="#F8FAFC">duck</tspan><tspan fill="#C084FC">Overture</tspan>
+      <tspan fill="#64748B" font-size="13" font-weight="500" dx="12">Multi-Theme Geospatial Pipeline (Transportation • Buildings • Places • Base)</tspan>
+    </text>
+  </g>
+</svg>
