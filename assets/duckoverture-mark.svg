@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 380" width="100%" height="100%">
+  <defs>
+    <!-- Beak Gradient -->
+    <linearGradient id="tBeakGrad" x1="0%" y1="0%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#FFD54F"/>
+      <stop offset="100%" stop-color="#FF8F00"/>
+    </linearGradient>
+
+    <!-- Theme Gradients -->
+    <linearGradient id="tPurple" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#C084FC"/>
+      <stop offset="100%" stop-color="#7E22CE"/>
+    </linearGradient>
+
+    <linearGradient id="tCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#0284C7"/>
+    </linearGradient>
+
+    <linearGradient id="tMagenta" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F472B6"/>
+      <stop offset="100%" stop-color="#BE185D"/>
+    </linearGradient>
+
+    <linearGradient id="tGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF176"/>
+      <stop offset="100%" stop-color="#FFA000"/>
+    </linearGradient>
+
+    <filter id="tGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <g transform="translate(-10, -20)">
+    <!-- Base Layer Parquet Base -->
+    <g opacity="0.8">
+      <path d="M 105 310 L 175 345 L 270 335 L 345 290 L 305 265 L 215 280 L 135 282 Z"
+            fill="#6366F1" opacity="0.25"/>
+      <path d="M 105 310 L 175 345 L 270 335 L 345 290"
+            fill="none" stroke="#6366F1" stroke-width="3" stroke-linejoin="round"/>
+      <circle cx="105" cy="310" r="4" fill="#818CF8"/>
+      <circle cx="175" cy="345" r="4.5" fill="#818CF8"/>
+      <circle cx="270" cy="335" r="4.5" fill="#818CF8"/>
+      <circle cx="345" cy="290" r="4" fill="#818CF8"/>
+    </g>
+
+    <!-- Middle Layer 3D Isometric Buildings -->
+    <g>
+      <path d="M 200 230 L 235 208 L 270 230 L 235 252 Z" fill="#C084FC" opacity="0.4"/>
+      <path d="M 200 230 L 235 252 L 235 275 L 200 253 Z" fill="#9333EA" opacity="0.65"/>
+      <path d="M 235 252 L 270 230 L 270 253 L 235 275 Z" fill="#7E22CE" opacity="0.8"/>
+
+      <path d="M 140 255 L 175 233 L 205 250 L 170 272 Z" fill="#E879F9" opacity="0.4"/>
+      <path d="M 140 255 L 170 272 L 170 292 L 140 275 Z" fill="#C026D3" opacity="0.65"/>
+      <path d="M 170 272 L 205 250 L 205 270 L 170 292 Z" fill="#A21CAF" opacity="0.8"/>
+    </g>
+
+    <!-- Golden DuckDB Beak -->
+    <path d="M 315 115 L 408 130 C 415 131, 416 139, 409 144 L 320 165 Z" 
+          fill="url(#tBeakGrad)" stroke="#FFA000" stroke-width="2.5" stroke-linejoin="round"/>
+    <circle cx="368" cy="134" r="2.8" fill="#B26A00"/>
+    <path d="M 322 144 L 392 141" stroke="#FF8F00" stroke-width="2" stroke-linecap="round"/>
+
+    <!-- Head & Neck Contour -->
+    <path d="M 245 70 L 285 98 L 315 115 L 295 160 L 235 140 Z" 
+          fill="none" stroke="url(#tCyan)" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M 245 70 L 215 115 L 235 140 L 225 195" 
+          fill="none" stroke="url(#tCyan)" stroke-width="4"/>
+    <path d="M 295 160 L 285 220 L 225 195" 
+          fill="none" stroke="url(#tPurple)" stroke-width="4.5"/>
+
+    <!-- Eye -->
+    <circle cx="285" cy="98" r="9" fill="#0B0D1B" stroke="#FFF" stroke-width="3"/>
+    <circle cx="285" cy="98" r="4.5" fill="#C084FC"/>
+
+    <!-- Duck Body Outer Highway Arc -->
+    <path d="M 225 195 L 155 230 L 115 280 L 175 325 L 255 320 L 325 275 L 340 210 L 285 220" 
+          fill="none" stroke="url(#tPurple)" stroke-width="4.5" stroke-linejoin="round"/>
+
+    <!-- Golden Shortcut Line -->
+    <path d="M 115 280 L 195 255 L 275 265 L 340 210" 
+          fill="none" stroke="url(#tGold)" stroke-width="5.5" stroke-linecap="round" stroke-dasharray="14 6" filter="url(#tGlow)"/>
+
+    <!-- Transportation Connectors -->
+    <path d="M 155 230 L 195 255 L 175 325" fill="none" stroke="url(#tCyan)" stroke-width="3.5"/>
+    <path d="M 225 195 L 195 255 L 255 320" fill="none" stroke="url(#tMagenta)" stroke-width="3.5"/>
+    <path d="M 285 220 L 275 265 L 255 320" fill="none" stroke="url(#tCyan)" stroke-width="3.5"/>
+    <path d="M 285 220 L 325 275" fill="none" stroke="url(#tPurple)" stroke-width="3.5"/>
+
+    <!-- Tail Streamlines -->
+    <path d="M 115 280 L 55 265 C 50 264, 52 258, 58 258 L 105 260" fill="none" stroke="url(#tMagenta)" stroke-width="4" stroke-linecap="round"/>
+    <path d="M 100 290 L 42 285 C 38 284, 40 278, 46 279 L 95 287" fill="none" stroke="url(#tPurple)" stroke-width="3.5" stroke-linecap="round"/>
+
+    <!-- Directional Navigation Arrows -->
+    <polygon points="188,251 202,255 192,264" fill="#FFD54F"/>
+    <polygon points="298,239 312,232 308,248" fill="#FFD54F"/>
+
+    <!-- Glowing Nodes -->
+    <circle cx="245" cy="70" r="6" fill="#FFF" filter="url(#tGlow)"/>
+    <circle cx="215" cy="115" r="5" fill="#38BDF8"/>
+    <circle cx="235" cy="140" r="5" fill="#F472B6"/>
+    <circle cx="295" cy="160" r="6" fill="#C084FC"/>
+    <circle cx="225" cy="195" r="7" fill="#FFD54F" filter="url(#tGlow)"/>
+    <circle cx="285" cy="220" r="7" fill="#38BDF8" filter="url(#tGlow)"/>
+    <circle cx="340" cy="210" r="6" fill="#E879F9"/>
+    <circle cx="155" cy="230" r="6" fill="#38BDF8"/>
+    <circle cx="195" cy="255" r="8" fill="#FFC107" filter="url(#tGlow)"/>
+    <circle cx="275" cy="265" r="7.5" fill="#FFD54F" filter="url(#tGlow)"/>
+    <circle cx="325" cy="275" r="5.5" fill="#C084FC"/>
+    <circle cx="115" cy="280" r="7.5" fill="#F472B6" filter="url(#tGlow)"/>
+    <circle cx="175" cy="325" r="6" fill="#38BDF8"/>
+    <circle cx="255" cy="320" r="6.5" fill="#A855F7"/>
+  </g>
+</svg>

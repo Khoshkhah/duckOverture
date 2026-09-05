@@ -1,6 +1,28 @@
-# duckOverture
+<p align="center">
+  <img src="assets/duckoverture-banner.svg" alt="duckOverture — high-performance Overture Maps pipeline built on DuckDB" width="800">
+</p>
 
-**Give it a boundary, get a DuckDB file with every Overture Maps table for that area.**
+<p align="center">
+  <b>Give it a boundary, get a DuckDB file with every Overture Maps table for that area.</b><br>
+  No client library, no API key, no bulk download — DuckDB reads Overture's GeoParquet straight off S3
+</p>
+
+<p align="center">
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white">
+  <img alt="Built on DuckDB" src="https://img.shields.io/badge/built%20on-DuckDB-FFF000?logo=duckdb&logoColor=black">
+  <img alt="Overture Maps" src="https://img.shields.io/badge/data-Overture%20Maps-8B5CF6">
+  <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-blue">
+</p>
+
+<p align="center">
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#the-output">Output</a> ·
+  <a href="#usage">Usage</a> ·
+  <a href="#visualise">Visualise</a> ·
+  <a href="#flatten">Flatten</a> ·
+  <a href="#known-limits-of-the-source-data">Known limits</a> ·
+  <a href="#install">Install</a>
+</p>
 
 ```bash
 duckoverture build -b sodermalm.geojson -o sodermalm.duckdb
@@ -44,6 +66,10 @@ Södermalm that is 6,165 candidate segments fetched in ~6 s, then clipped to 4,2
 `ST_Intersects` against the remote dataset directly would pull the planet.
 
 ## The output
+
+<p align="center">
+  <img src="assets/duckoverture-layers.svg" alt="The three Overture theme groups duckOverture lands in one db: transportation, buildings &amp; places, base" width="720">
+</p>
 
 Schema per Overture theme, table per type — the db mirrors the upstream layout, nothing renamed:
 
